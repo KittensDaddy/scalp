@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Never commit credentials or live state
+.env
+.env.*
+!.env.example
+secrets/
+*.db
+*.db-wal
+*.db-shm
+data/
+logs/
+
+# Frontend
+node_modules/
+frontend/dist/
