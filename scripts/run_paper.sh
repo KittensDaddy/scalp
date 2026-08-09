@@ -40,8 +40,13 @@ if [[ ! -f frontend/dist/index.html ]]; then
     echo "building dashboard (one-off)…"
     (cd frontend && npm install --silent && npm run build)
   else
-    echo "npm not found — API will run without the dashboard UI" >&2
+    echo "!! npm not found — the dashboard UI cannot be built on this host." >&2
+    echo "!! The API will still run; / will explain how to fix it." >&2
+    echo "!! Install Node (e.g. sudo apt install nodejs npm) and re-run." >&2
   fi
+fi
+if [[ ! -f frontend/dist/index.html ]]; then
+  echo "!! dashboard NOT built — http://<ip>:${SCALPING_DASHBOARD_PORT:-8000}/ will return a build hint, not the UI." >&2
 fi
 
 if [[ -n "${SCALPING_HTTP_PROXY:-}" ]]; then

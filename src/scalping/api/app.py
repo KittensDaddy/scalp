@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -32,6 +34,8 @@ from scalping.monitoring.active_trades import ActiveTradeService
 from scalping.risk.kill_switch import KillSwitch
 from scalping.scanner.developing import DevelopingSetupsService
 from scalping.scanner.service import ScannerService
+
+log = logging.getLogger(__name__)
 
 
 def create_app(
@@ -106,5 +110,27 @@ def create_app(
     # paths fall through to the SPA.
     static_dir = settings.static_dir()
     if static_dir is not None:
+        log.info("serving dashboard from %s", static_dir)
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="dashboard")
+    else:
+        # Without this the API answers `/` with a bare {"detail":"Not Found"},
+        # which says nothing about the actual cause (frontend/dist is gitignored,
+        # so it only exists once someone has built it on this machine).
+        log.warning(
+            "dashboard UI not built — serving API only. "
+            "Run: cd frontend && npm install && npm run build"
+        )
+
+        @app.get("/", response_class=PlainTextResponse)
+        async def _dashboard_missing() -> PlainTextResponse:
+            return PlainTextResponse(
+                "The API is running, but the dashboard UI has not been built on this host.\n"
+                "frontend/dist is gitignored, so it is never present after a fresh clone.\n\n"
+                "Build it:\n"
+                "    cd frontend && npm install && npm run build\n"
+                "then restart. ./scripts/run_paper.sh does this for you.\n\n"
+                "The API itself is fine — try /api/v1/health or /api/v1/scanner.\n",
+                status_code=503,
+            )
+
     return app

@@ -223,12 +223,24 @@ class Settings(BaseSettings):
     defaults: EffectiveConfig = Field(default_factory=EffectiveConfig)
 
     def static_dir(self) -> Path | None:
-        """Directory of the built dashboard, or None when it hasn't been built."""
+        """Directory of the built dashboard, or None when it hasn't been built.
+
+        Checked against several layouts because the answer decides whether the
+        dashboard appears at all: an explicit override, the repo root relative to
+        this file (editable install), and the working directory (non-editable
+        install, where `__file__` lives under site-packages).
+        """
         if self.dashboard_static_dir:
             explicit = Path(self.dashboard_static_dir).expanduser()
-            return explicit if explicit.is_dir() else None
-        default = Path(__file__).resolve().parents[3] / "frontend" / "dist"
-        return default if default.is_dir() else None
+            return explicit if (explicit / "index.html").is_file() else None
+        candidates = [
+            Path(__file__).resolve().parents[3] / "frontend" / "dist",
+            Path.cwd() / "frontend" / "dist",
+        ]
+        for candidate in candidates:
+            if (candidate / "index.html").is_file():
+                return candidate
+        return None
 
     def use_universe(self) -> bool:
         return self.run_symbols.strip().lower() in {"auto", "universe", "*"}
