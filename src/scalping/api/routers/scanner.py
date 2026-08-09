@@ -52,7 +52,11 @@ def serialize_scanner_row(
         "atr_pct": atr_pct,
         "rr": None,
         "net_edge_r": None,
-        "state": "ACCEPTED" if row.accepted else "REJECTED",
+        "state": (
+            "WARMING"
+            if row.strategy == "warming"
+            else ("ACCEPTED" if row.accepted else "REJECTED")
+        ),
         "age_ms": age_ms,
         "reasons_top3": [row.rejection_reason.value] if row.rejection_reason else [],
     }

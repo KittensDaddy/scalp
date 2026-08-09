@@ -112,3 +112,30 @@ async def test_production_tick_publishes_scanner():
     msg = await q.get()
     assert msg["type"] == "snapshot"
     assert len(msg["rows"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_production_tick_shows_warming_rows_before_indicators_ready():
+    registry = SymbolStateRegistry(FrozenParams())
+    # Register symbol with no candle history — indicators not ready.
+    registry.get_or_create("ETHUSDT")
+    scanner = ScannerService()
+    developing = DevelopingSetupsService()
+    tick = ProductionTick(
+        registry=registry,
+        runner=StrategyRunner(scanner=scanner, developing=developing),
+        scanner=scanner,
+        developing=developing,
+        active_trades=ActiveTradeService(),
+        broadcaster=Broadcaster(),
+        kill_switch=KillSwitch(control_token="c", unkill_token="u"),
+        config=EffectiveConfig(),
+        symbols=["ETHUSDT"],
+        execute=False,
+    )
+    await tick.run(NOW)
+    rows = scanner.snapshot().rows
+    assert len(rows) == 1
+    assert rows[0].symbol == "ETHUSDT"
+    assert rows[0].strategy == "warming"
+    assert rows[0].rejection_reason.value == "DATA_UNAVAILABLE"

@@ -320,7 +320,12 @@ async def _run_async() -> int:
             config_hash=config.config_hash(),
         )
 
-    if settings.warm_registry:
+    # Auto-warm through proxy when available — without REST history, 5m EMAs
+    # need ~hours of WS bars before any scanner row is tradeable.
+    do_warm = settings.warm_registry or bool(proxy)
+    if do_warm and not settings.warm_registry and proxy:
+        print("proxy set — enabling REST warm so scanner fills sooner", flush=True)
+    if do_warm:
         try:
             print(f"warming indicators for {len(symbols)} symbols…", flush=True)
             await _warm_registry(rest, registry, symbols)

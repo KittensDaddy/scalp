@@ -12,7 +12,7 @@ export interface ScannerRow {
   atr_pct: number | null;
   rr: number | null;
   net_edge_r: number | null;
-  state: "ACCEPTED" | "REJECTED";
+  state: "ACCEPTED" | "REJECTED" | "WARMING";
   age_ms: number | null;
   reasons_top3: string[];
 }

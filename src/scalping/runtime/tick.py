@@ -21,7 +21,7 @@ from scalping.config.class_resolver import (
 from scalping.config.frozen import FrozenParams
 from scalping.config.presets import ClassPreset, load_presets_yaml
 from scalping.config.settings import EffectiveConfig
-from scalping.domain.models import SignalCandidate
+from scalping.domain.models import RejectionReason, Side, SignalCandidate
 from scalping.market_data.registry import SymbolStateRegistry
 from scalping.monitoring.active_trades import ActiveTradeService
 from scalping.risk.kill_switch import KillSwitch
@@ -29,7 +29,7 @@ from scalping.runtime.context import build_eval_context, build_snapshot
 from scalping.runtime.paper_executor import PaperExecutor
 from scalping.scanner.developing import DevelopingSetupsService
 from scalping.scanner.runner import RunnerPassResult, StrategyRunner, SymbolEvalContext
-from scalping.scanner.service import ScannerService
+from scalping.scanner.service import ScannerRow, ScannerService
 
 log = logging.getLogger(__name__)
 
@@ -159,6 +159,27 @@ class ProductionTick:
             evaluated_at=now,
             btc_snapshot=btc_snapshot,
         )
+        # Keep watched symbols visible while EMAs warm up from WS (or REST warm).
+        ready = {c.symbol for c in contexts}
+        if any(symbol not in ready for symbol in symbols):
+            merged = list(self.scanner.snapshot().rows)
+            for symbol in symbols:
+                if symbol in ready:
+                    continue
+                merged.append(
+                    ScannerRow(
+                        symbol=symbol,
+                        side=Side.LONG,
+                        score=-1.0,
+                        accepted=False,
+                        rejection_reason=RejectionReason.DATA_UNAVAILABLE,
+                        breakdown=None,
+                        strategy="warming",
+                        preset=None,
+                    )
+                )
+            self.scanner.publish(merged)
+
         await self._publish_feeds(now)
         self._mark_open_positions(now)
 
