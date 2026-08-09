@@ -133,7 +133,9 @@ async def _resolve_symbols(
     capped = await fetch_ranked_universe(rest, settings, session_factory)
     print(
         f"universe: using top {len(capped)} by 24h volume "
-        f"(max={settings.universe_max_symbols})",
+        f"(max={settings.universe_max_symbols} "
+        f"min_vol={settings.universe_min_quote_volume_usdt:.0f} "
+        f"max_spread_bps={settings.universe_max_spread_bps})",
         flush=True,
     )
     if not capped:

@@ -23,13 +23,22 @@ log = logging.getLogger(__name__)
 _PRIORITY = {"BTCUSDT": 0, "ETHUSDT": 1}
 
 
+def universe_config_from_settings(settings: Settings) -> UniverseConfig:
+    return UniverseConfig(
+        min_quote_volume_usdt=settings.universe_min_quote_volume_usdt,
+        max_spread_bps=settings.universe_max_spread_bps,
+        min_history_days=settings.universe_min_history_days,
+    )
+
+
 async def fetch_ranked_universe(
     rest: BinanceRestClient,
     settings: Settings,
     session_factory: async_sessionmaker,
 ) -> list[str]:
     """Eligible symbols ranked by 24h quote volume (majors pinned first)."""
-    entries = await build_universe(rest, UniverseConfig())
+    cfg = universe_config_from_settings(settings)
+    entries = await build_universe(rest, cfg)
     async with session_factory() as session:
         await upsert_universe(
             session, entries, now=datetime.now(UTC).replace(tzinfo=None)

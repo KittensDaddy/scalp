@@ -145,8 +145,10 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./data/scalping.db"
 
-    control_token: str = ""
-    dashboard_unkill_token: str = ""
+    # Paper defaults so `scalping --run` works after pull without exporting env.
+    # Override in .env for anything beyond local/miniserver paper soak.
+    control_token: str = "paper-ctrl"
+    dashboard_unkill_token: str = "paper-unkill"
 
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 8000
@@ -159,7 +161,12 @@ class Settings(BaseSettings):
     # "auto" = liquid USDT-perp universe from Binance (see market_data/universe.py).
     # Or a comma list, e.g. "BTCUSDT,ETHUSDT".
     run_symbols: str = "auto"
-    universe_max_symbols: int = 150
+    universe_max_symbols: int = 300
+    # Liquidity floor for auto-universe (USDT 24h quote volume).
+    # ~$100k + 10bps spread ≈ 300 names; raise for a tighter liquid set.
+    universe_min_quote_volume_usdt: float = 100_000.0
+    universe_max_spread_bps: float = 10.0
+    universe_min_history_days: int = 7
     # How often to rebuild the liquid watchlist when run_symbols=auto.
     # Scanner score still re-ranks every tick inside that watchlist.
     universe_refresh_hours: float = 4.0
