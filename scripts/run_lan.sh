@@ -10,13 +10,18 @@ if [[ ! -f .env ]]; then
   echo "wrote .env from .env.example"
 fi
 
-LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+# Prefer the address on the default route. `hostname -I` lists every interface
+# and often puts a docker/bridge IP first, which is reachable from nowhere.
+LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
 if [[ -z "${LAN_IP}" ]]; then
-  LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
+  LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 fi
 if [[ -z "${LAN_IP}" ]]; then
   echo "could not detect LAN IP" >&2
   exit 1
+fi
+if [[ -n "${SCALPING_LAN_IP:-}" ]]; then
+  LAN_IP="${SCALPING_LAN_IP}"   # override when autodetection picks the wrong NIC
 fi
 
 # Upsert LAN bind / CORS without clobbering proxy or tokens.
@@ -90,5 +95,8 @@ for _ in $(seq 1 60); do
 done
 
 echo "open http://${LAN_IP}:5173 from your laptop"
+echo "if it does not load, the ports are probably firewalled on this host:"
+echo "  sudo ufw allow 5173/tcp && sudo ufw allow 8000/tcp   # ufw"
+echo "  sudo firewall-cmd --add-port=5173/tcp --add-port=8000/tcp --permanent && sudo firewall-cmd --reload"
 cd frontend
 exec env VITE_API_BASE="http://${LAN_IP}:8000" npm run dev -- --host 0.0.0.0 --port 5173

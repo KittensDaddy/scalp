@@ -8,8 +8,22 @@ import type {
   TradeEventsResponse,
 } from "./types";
 
-export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://127.0.0.1:8000";
+// Default to the API on the same host the page was served from, so opening the
+// dashboard at http://<miniserver-ip>:5173 talks to http://<miniserver-ip>:8000.
+// Hardcoding 127.0.0.1 pointed a LAN browser at the *laptop*, which silently
+// serves nothing. VITE_API_BASE still overrides for split deployments.
+function defaultApiBase(): string {
+  const env = import.meta.env.VITE_API_BASE as string | undefined;
+  if (env) {
+    return env;
+  }
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return "http://127.0.0.1:8000";
+}
+
+export const API_BASE: string = defaultApiBase();
 
 export const WS_BASE: string = API_BASE.replace(/^http/, "ws");
 
