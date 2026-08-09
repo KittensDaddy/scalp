@@ -171,6 +171,9 @@ class Settings(BaseSettings):
     # How often to rebuild the liquid watchlist when run_symbols=auto.
     # Scanner score still re-ranks every tick inside that watchlist.
     universe_refresh_hours: float = 4.0
+    # REST candle backfill before WS. Default off — indicators fill from live
+    # kline_1m streams (avoids Binance IP bans on large universes).
+    warm_registry: bool = False
     paper_equity: float = 10_000.0
     # Empty → DOCS/caems_presets.yaml (repo root). Per-pair class routing for --run.
     presets_path: str = ""

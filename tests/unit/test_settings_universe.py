@@ -25,6 +25,7 @@ def test_paper_pull_and_run_defaults():
     assert s.universe_min_quote_volume_usdt == 100_000.0
     assert s.universe_max_spread_bps == 10.0
     assert s.universe_min_history_days == 0
+    assert s.warm_registry is False
 
 
 def test_universe_config_from_settings():

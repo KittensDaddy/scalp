@@ -307,12 +307,18 @@ async def _run_async() -> int:
             config_hash=config.config_hash(),
         )
 
-    try:
-        print(f"warming indicators for {len(symbols)} symbols…", flush=True)
-        await _warm_registry(rest, registry, symbols)
-        print(f"warmed registry ({len(symbols)} symbols)", flush=True)
-    except Exception as exc:
-        print(f"WARNING: registry warm failed ({exc}) — waiting for live feed", flush=True)
+    if settings.warm_registry:
+        try:
+            print(f"warming indicators for {len(symbols)} symbols…", flush=True)
+            await _warm_registry(rest, registry, symbols)
+            print(f"warmed registry ({len(symbols)} symbols)", flush=True)
+        except Exception as exc:
+            print(f"WARNING: registry warm failed ({exc}) — waiting for live feed", flush=True)
+    else:
+        print(
+            f"skipping REST warm ({len(symbols)} symbols) — indicators fill via WS",
+            flush=True,
+        )
 
     volume_ranks: dict[str, int] = {}
     try:
@@ -386,8 +392,17 @@ async def _run_async() -> int:
                     )
                     continue
                 if added:
-                    print(f"universe refresh: warming {len(added)} new symbols…", flush=True)
-                    await _warm_registry(rest, registry, added)
+                    if settings.warm_registry:
+                        print(
+                            f"universe refresh: warming {len(added)} new symbols…",
+                            flush=True,
+                        )
+                        await _warm_registry(rest, registry, added)
+                    else:
+                        print(
+                            f"universe refresh: +{len(added)} symbols (WS warm)",
+                            flush=True,
+                        )
                 watchlist[:] = nxt
                 tick.symbols = watchlist
                 supervisor.config.symbols = watchlist
