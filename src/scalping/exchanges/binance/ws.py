@@ -65,6 +65,7 @@ class BinanceWSConnection:
         streams: list[str],
         on_message: Callable[[dict], None],
         max_backoff_s: float = 30.0,
+        proxy: str | None = None,
     ) -> None:
         validate_single_category(streams)
         if _category_of(streams[0]) != category:
@@ -76,6 +77,7 @@ class BinanceWSConnection:
         self.streams = streams
         self._on_message = on_message
         self._max_backoff_s = max_backoff_s
+        self._proxy = proxy
         self._stop = asyncio.Event()
 
     def _url(self) -> str:
@@ -87,7 +89,11 @@ class BinanceWSConnection:
         backoff = 1.0
         while not self._stop.is_set():
             try:
-                async with websockets.connect(self._url()) as ws:
+                # proxy=True → honor HTTP(S)_PROXY env; explicit URL overrides.
+                connect_kwargs: dict = {}
+                if self._proxy is not None:
+                    connect_kwargs["proxy"] = self._proxy
+                async with websockets.connect(self._url(), **connect_kwargs) as ws:
                     backoff = 1.0
                     async for raw in ws:
                         if self._stop.is_set():

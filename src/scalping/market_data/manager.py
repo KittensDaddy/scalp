@@ -49,6 +49,7 @@ class MarketDataManager:
         max_streams_per_shard: int = 200,
         shard_factory: ShardFactory = BinanceWSConnection,
         aggregate_5m: bool = True,
+        proxy: str | None = None,
     ) -> None:
         self.ws_base = ws_base
         self.registry = registry
@@ -61,6 +62,7 @@ class MarketDataManager:
         self._connections: dict[tuple[str, int], BinanceWSConnection] = {}
         self.aggregate_5m = aggregate_5m
         self._agg_5m: dict[str, StreamingAggregator] = {}
+        self.proxy = proxy
 
     # -- shard planning ------------------------------------------------------------
 
@@ -129,11 +131,13 @@ class MarketDataManager:
             self._connections[("public", shard_id)] = self._shard_factory(
                 ws_base=self.ws_base, category=StreamCategory.PUBLIC,
                 streams=self.build_public_streams(symbols), on_message=self._on_book_ticker,
+                proxy=self.proxy,
             )
         for shard_id, symbols in self.market_plan.assignments.items():
             self._connections[("market", shard_id)] = self._shard_factory(
                 ws_base=self.ws_base, category=StreamCategory.MARKET,
                 streams=self.build_market_streams(symbols), on_message=self._on_kline,
+                proxy=self.proxy,
             )
         return self._connections
 

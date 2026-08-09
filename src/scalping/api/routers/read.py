@@ -107,16 +107,22 @@ async def candles(
     """Public kline proxy for the dashboard chart (avoids browser CORS on Binance)."""
     from scalping.exchanges.base.rate_limiter import RateLimiter
     from scalping.exchanges.binance.rest import BinanceRestClient
+    from scalping.exchanges.proxy import choose_proxy, parse_proxy_list
 
     limit = max(1, min(limit, 1000))
     allowed = {"1m", "3m", "5m", "15m", "1h"}
     if interval not in allowed:
         interval = "1m"
+    proxy = choose_proxy(
+        parse_proxy_list(state.settings.http_proxy, state.settings.http_proxies),
+        sticky="scalping-run",
+    )
     rest = BinanceRestClient(
         base_url=state.settings.binance_rest_base,
         api_key=state.settings.binance_api_key,
         api_secret=state.settings.binance_api_secret,
         rate_limiter=RateLimiter(),
+        proxy=proxy,
     )
     try:
         raw = await rest.klines(symbol=symbol.upper(), interval=interval, limit=limit)

@@ -25,6 +25,7 @@ from scalping.config.frozen import FrozenParams
 from scalping.config.settings import get_settings
 from scalping.exchanges.base.rate_limiter import RateLimiter
 from scalping.exchanges.binance.rest import BinanceRestClient
+from scalping.exchanges.proxy import choose_proxy, parse_proxy_list, proxy_log_label
 from scalping.market_data.aggregation import aggregate_candles
 from scalping.market_data.candles import fetch_klines_range, load_backtest_candles
 from scalping.market_data.manager import MarketDataManager
@@ -63,12 +64,19 @@ async def _init_db_async() -> None:
     await engine.dispose()
 
 
-def _make_rest(settings) -> BinanceRestClient:
+def _proxy_from_settings(settings) -> str | None:
+    proxies = parse_proxy_list(settings.http_proxy, settings.http_proxies)
+    # Sticky per process so universe + warm share one exit IP / rate budget.
+    return choose_proxy(proxies, sticky="scalping-run")
+
+
+def _make_rest(settings, *, proxy: str | None = None) -> BinanceRestClient:
     return BinanceRestClient(
         base_url=settings.binance_rest_base,
         api_key=settings.binance_api_key,
         api_secret=settings.binance_api_secret,
         rate_limiter=RateLimiter(),
+        proxy=proxy if proxy is not None else _proxy_from_settings(settings),
     )
 
 
@@ -255,7 +263,12 @@ async def _run_async() -> int:
     engine = make_engine(settings.database_url)
     await init_db(engine)
     session_factory = async_sessionmaker(engine)
-    rest = _make_rest(settings)
+    proxy = _proxy_from_settings(settings)
+    if proxy:
+        print(f"using outbound proxy {proxy_log_label(proxy)}", flush=True)
+    else:
+        print("no SCALPING_HTTP_PROXY set — direct Binance REST (banned IPs will fail)", flush=True)
+    rest = _make_rest(settings, proxy=proxy)
 
     try:
         symbols = await _resolve_symbols(rest, settings, session_factory)
@@ -330,7 +343,9 @@ async def _run_async() -> int:
     # Mutable watchlist shared by tick / poll / refresh.
     watchlist = list(symbols)
 
-    md = MarketDataManager(ws_base=settings.binance_ws_base, registry=registry)
+    md = MarketDataManager(
+        ws_base=settings.binance_ws_base, registry=registry, proxy=proxy
+    )
     md.rebalance(set(watchlist))
     connections = md.build_connections()
     ws_tasks = [

@@ -143,6 +143,13 @@ class Settings(BaseSettings):
     binance_testnet_rest_base: str = "https://demo-fapi.binance.com"
     binance_ws_base: str = "wss://fstream.binance.com"
 
+    # Outbound HTTP(S) proxy for Binance REST (+ optional WS). Webshare example:
+    #   SCALPING_HTTP_PROXY=http://USER-rotate:PASS@p.webshare.io:80
+    # Or many direct proxies (comma/newline); one is picked sticky per process:
+    #   SCALPING_HTTP_PROXIES=http://u:p@1.2.3.4:80,http://u:p@5.6.7.8:80
+    http_proxy: str = ""
+    http_proxies: str = ""
+
     database_url: str = "sqlite+aiosqlite:///./data/scalping.db"
 
     # Paper defaults so `scalping --run` works after pull without exporting env.

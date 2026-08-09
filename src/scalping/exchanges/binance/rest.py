@@ -30,13 +30,21 @@ class BinanceRestClient:
         rate_limiter: RateLimiter,
         recv_window_ms: int = 5000,
         http_client: httpx.AsyncClient | None = None,
+        proxy: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._api_secret = api_secret.encode()
         self._rate_limiter = rate_limiter
         self._recv_window_ms = recv_window_ms
-        self._client = http_client or httpx.AsyncClient(base_url=self._base_url, timeout=10.0)
+        if http_client is not None:
+            self._client = http_client
+        else:
+            kwargs: dict[str, Any] = {"base_url": self._base_url, "timeout": 30.0}
+            if proxy:
+                kwargs["proxy"] = proxy
+            self._client = httpx.AsyncClient(**kwargs)
+        self.proxy = proxy
 
     def _sign(self, params: dict[str, Any]) -> dict[str, Any]:
         params = dict(params)
