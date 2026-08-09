@@ -175,3 +175,47 @@ def test_run_once_no_developing_setup_when_symbol_accepted():
     snapshot = runner.developing.snapshot()
     # LONG accepts in this fixture — never listed as developing for that side.
     assert not any(s.side is Side.LONG for s in snapshot.setups)
+
+def test_cooldown_row_reports_cooldown_not_symbol_disabled():
+    """A cooled-down symbol is tradeable, just resting. Reporting it as
+    SYMBOL_DISABLED hides how much of a campaign was spent in cooldown."""
+    cooldowns = CooldownManager()
+    cooldowns.set("symbol", "BTCUSDT", "post_loss", NOW.replace(hour=13))
+    runner = StrategyRunner(cooldowns=cooldowns)
+
+    result = runner.run_once(
+        [_context("BTCUSDT")], config=EffectiveConfig(), frozen=FrozenParams(),
+        config_hash="h", evaluated_at=NOW,
+    )
+
+    assert result.delta.upserts[0].rejection_reason == RejectionReason.COOLDOWN
+
+
+def test_global_cooldown_holds_out_every_symbol():
+    """The API-reconnect cooldown is global scope — a runner checking only
+    symbol scope would trade straight through a stale-feed pause."""
+    cooldowns = CooldownManager()
+    cooldowns.set("global", "*", "api_reconnect", NOW.replace(hour=13))
+    runner = StrategyRunner(cooldowns=cooldowns)
+
+    result = runner.run_once(
+        [_context("BTCUSDT")], config=EffectiveConfig(), frozen=FrozenParams(),
+        config_hash="h", evaluated_at=NOW,
+    )
+
+    assert result.delta.upserts[0].accepted is False
+    assert result.delta.upserts[0].rejection_reason == RejectionReason.COOLDOWN
+    assert result.signals == []
+
+
+def test_expired_global_cooldown_lets_trading_resume():
+    cooldowns = CooldownManager()
+    cooldowns.set("global", "*", "api_reconnect", NOW.replace(hour=11))
+    runner = StrategyRunner(cooldowns=cooldowns)
+
+    result = runner.run_once(
+        [_context("BTCUSDT")], config=EffectiveConfig(), frozen=FrozenParams(),
+        config_hash="h", evaluated_at=NOW,
+    )
+
+    assert result.delta.upserts[0].rejection_reason != RejectionReason.COOLDOWN

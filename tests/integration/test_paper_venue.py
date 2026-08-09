@@ -102,3 +102,56 @@ async def test_open_algo_orders_reported_per_symbol():
     orders = await venue.get_open_algo_orders("BTCUSDT")
     types = {o.algo_type for o in orders}
     assert types == {"STOP_MARKET", "TAKE_PROFIT_MARKET"}
+
+
+async def test_take_profit_cancels_sibling_stop_no_phantom_position():
+    """Stop and TP guard one position. Whichever fires must cancel the other —
+    otherwise the survivor triggers later against a flat book and opens a
+    position the strategy never signalled."""
+    venue = PaperVenue()
+    await venue.place_taker_entry("BTCUSDT", Side.LONG, 1.0, "entry")
+    await venue.place_stop("BTCUSDT", Side.LONG, 99.0, 1.0, "stop")
+    await venue.place_take_profit("BTCUSDT", Side.LONG, 101.0, 1.0, "tp")
+
+    venue.on_book_ticker(_bt(bid=101.2, ask=101.3))  # TP triggers
+    assert await venue.get_open_positions() == []
+
+    # Price now falls through the old stop trigger.
+    venue.on_book_ticker(_bt(bid=98.0, ask=98.1))
+    assert await venue.get_open_positions() == []
+    assert await venue.get_open_algo_orders("BTCUSDT") == []
+
+
+async def test_stop_cancels_sibling_take_profit():
+    venue = PaperVenue()
+    await venue.place_taker_entry("BTCUSDT", Side.SHORT, 1.0, "entry")
+    await venue.place_stop("BTCUSDT", Side.SHORT, 101.0, 1.0, "stop")
+    await venue.place_take_profit("BTCUSDT", Side.SHORT, 99.0, 1.0, "tp")
+
+    venue.on_book_ticker(_bt(bid=101.4, ask=101.5))  # stop triggers for a short
+    assert await venue.get_open_positions() == []
+
+    venue.on_book_ticker(_bt(bid=98.5, ask=98.6))  # old TP level
+    assert await venue.get_open_positions() == []
+
+
+async def test_reduce_only_close_never_opens_a_position():
+    venue = PaperVenue()
+    venue.on_book_ticker(_bt())
+    await venue.place_reduce_only_market_close("BTCUSDT", Side.LONG, 1.0)
+    assert await venue.get_open_positions() == []
+
+
+async def test_reduce_only_close_caps_at_open_quantity():
+    venue = PaperVenue()
+    await venue.place_taker_entry("BTCUSDT", Side.LONG, 1.0, "entry")
+    await venue.place_reduce_only_market_close("BTCUSDT", Side.LONG, 5.0)
+    assert await venue.get_open_positions() == []
+
+
+async def test_book_updates_for_other_symbols_do_not_touch_working_orders():
+    venue = PaperVenue()
+    await venue.place_maker_entry("BTCUSDT", Side.LONG, 100.0, 1.0, "cid1")
+    venue.on_book_ticker(_bt(symbol="ETHUSDT", bid=1.0, ask=1.0))
+    status = await venue.query_order("BTCUSDT", "cid1")
+    assert status.status == OrderStatus.NEW

@@ -27,6 +27,7 @@ from scalping.monitoring.active_trades import ActiveTradeService
 from scalping.risk.kill_switch import KillSwitch
 from scalping.runtime.context import build_eval_context, build_snapshot
 from scalping.runtime.paper_executor import PaperExecutor
+from scalping.runtime.periods import PeriodTracker
 from scalping.scanner.developing import DevelopingSetupsService
 from scalping.scanner.runner import RunnerPassResult, StrategyRunner, SymbolEvalContext
 from scalping.scanner.service import ScannerRow, ScannerService
@@ -57,6 +58,9 @@ class ProductionTick:
     volume_rank_by_symbol: dict[str, int] = field(default_factory=dict)
     # symbol → EffectiveConfig for paper sizing
     config_by_symbol: dict[str, EffectiveConfig] = field(default_factory=dict)
+    # Rolls the daily/weekly loss caps over at UTC boundaries. Without it the
+    # first day to breach `daily_loss_cap_r` halts entries for good.
+    periods: PeriodTracker = field(default_factory=PeriodTracker)
 
     async def __call__(self, supervisor: Any, now: datetime) -> RunnerPassResult:
         return await self.run(now)
@@ -66,6 +70,7 @@ class ProductionTick:
 
     async def run(self, now: datetime | None = None) -> RunnerPassResult:
         now = now or datetime.now(UTC)
+        self._roll_periods(now)
         if self.paper_executor is not None:
             for symbol in self.symbols or self.registry.symbols():
                 state = self.registry.get(symbol)
@@ -242,6 +247,16 @@ class ProductionTick:
                 "positions": [serialize_active_trade(t) for t in snap_p.positions],
             },
         )
+
+    def _roll_periods(self, now: datetime) -> None:
+        if self.paper_executor is None:
+            return
+        drawdown = self.paper_executor.risk.drawdown
+        rollover = self.periods.apply(drawdown, now)
+        if rollover.daily:
+            log.info("daily drawdown window reset at %s", now.isoformat())
+        if rollover.weekly:
+            log.info("weekly drawdown window reset at %s", now.isoformat())
 
     def _mark_open_positions(self, now: datetime) -> None:
         for trade in list(self.active_trades.snapshot().positions):

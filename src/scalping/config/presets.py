@@ -118,6 +118,7 @@ _RISK_FIELDS = set(EffectiveConfig.model_fields["risk"].annotation.model_fields)
 _EXIT_FIELDS = set(EffectiveConfig.model_fields["exits"].annotation.model_fields)  # type: ignore[union-attr]
 _COST_FIELDS = set(EffectiveConfig.model_fields["cost"].annotation.model_fields)  # type: ignore[union-attr]
 _META_FIELDS = set(EffectiveConfig.model_fields["symbol_meta"].annotation.model_fields)  # type: ignore[union-attr]
+_COOLDOWN_FIELDS = set(EffectiveConfig.model_fields["cooldowns"].annotation.model_fields)  # type: ignore[union-attr]
 
 
 def _route(key: str) -> str:
@@ -131,6 +132,8 @@ def _route(key: str) -> str:
         return "cost"
     if key in _META_FIELDS:
         return "symbol_meta"
+    if key in _COOLDOWN_FIELDS:
+        return "cooldowns"
     raise KeyError(f"Unknown preset key {key!r} — not present on any EffectiveConfig section")
 
 
@@ -190,6 +193,7 @@ def resolve_effective_config(
 
     sectioned: dict[str, dict[str, Any]] = {
         "gates": {}, "risk": {}, "exits": {}, "cost": {}, "symbol_meta": {},
+        "cooldowns": {},
     }
     for key, value in merged.items():
         try:
@@ -204,4 +208,5 @@ def resolve_effective_config(
     out.exits = out.exits.model_copy(update=sectioned["exits"])
     out.cost = out.cost.model_copy(update=sectioned["cost"])
     out.symbol_meta = out.symbol_meta.model_copy(update=sectioned["symbol_meta"])
+    out.cooldowns = out.cooldowns.model_copy(update=sectioned["cooldowns"])
     return out

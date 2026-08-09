@@ -105,11 +105,15 @@ class StrategyRunner:
             ch = ctx.config_hash if getattr(ctx, "config_hash", None) else config_hash
             assert cfg is not None and ch is not None
 
-            if self.cooldowns.is_active("symbol", ctx.symbol, evaluated_at):
+            # Global scope covers feed-wide pauses (API reconnect); symbol scope
+            # covers post-trade timeouts. Either one holds the symbol out.
+            if self.cooldowns.is_active(
+                "global", "*", evaluated_at
+            ) or self.cooldowns.is_active("symbol", ctx.symbol, evaluated_at):
                 rows.append(
                     ScannerRow(
                         symbol=ctx.symbol, side=Side.LONG, score=0.0, accepted=False,
-                        rejection_reason=RejectionReason.SYMBOL_DISABLED, breakdown=None,
+                        rejection_reason=RejectionReason.COOLDOWN, breakdown=None,
                         strategy="caems_v2", preset=ctx.preset,
                     )
                 )

@@ -120,6 +120,39 @@ async def save_entry_attempt(
         config_hash=config_hash,
     )
     session.add(row)
+    # Flush so the caller gets the surrogate key: markouts are measured seconds
+    # after the fill and land as an update to this row.
+    await session.flush()
+    return row
+
+
+async def update_entry_attempt_markouts(
+    session: AsyncSession,
+    *,
+    attempt_id: int,
+    markout_5s_bps: float | None = None,
+    markout_5s_r: float | None = None,
+    markout_30s_bps: float | None = None,
+    markout_30s_r: float | None = None,
+) -> EntryAttemptRow | None:
+    """Fill in markouts once the +5s / +30s mids have been observed.
+
+    Each offset is written independently — a process that dies between the two
+    samples leaves an honest partial row rather than discarding the 5s reading.
+    """
+    row = (
+        await session.execute(select(EntryAttemptRow).where(EntryAttemptRow.id == attempt_id))
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    if markout_5s_bps is not None:
+        row.markout_5s_bps = markout_5s_bps
+    if markout_5s_r is not None:
+        row.markout_5s_r = markout_5s_r
+    if markout_30s_bps is not None:
+        row.markout_30s_bps = markout_30s_bps
+    if markout_30s_r is not None:
+        row.markout_30s_r = markout_30s_r
     return row
 
 

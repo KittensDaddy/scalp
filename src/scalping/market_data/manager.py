@@ -16,7 +16,7 @@ used for `ExchangePort` throughout `execution/`.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -50,9 +50,17 @@ class MarketDataManager:
         shard_factory: ShardFactory = BinanceWSConnection,
         aggregate_5m: bool = True,
         proxy: str | None = None,
+        book_sinks: Sequence[Callable[[BookTicker], None]] = (),
+        on_disconnect: Callable[[], None] | None = None,
     ) -> None:
         self.ws_base = ws_base
         self.registry = registry
+        # Extra consumers of every bookTicker update, at WS rate rather than at
+        # eval-tick rate. The PaperVenue subscribes here so resting maker orders
+        # and stop/TP triggers resolve against the same book the registry sees —
+        # replaying one snapshot per tick makes intra-tick maker fills impossible.
+        self.book_sinks = list(book_sinks)
+        self.on_disconnect = on_disconnect
         self.contiguity = contiguity or ContiguityTracker()
         self.max_streams_per_shard = max_streams_per_shard
         self.public_plan = ShardPlan()
@@ -88,6 +96,8 @@ class MarketDataManager:
             ask_price=float(msg["a"]), ask_qty=float(msg["A"]), event_time=received_at,
         )
         self.registry.on_book_ticker(bt)
+        for sink in self.book_sinks:
+            sink(bt)
         exchange_ts = _event_time_from_msg(msg, fallback=received_at)
         self.latency.record("book_ticker", exchange_ts=exchange_ts, local_ts=received_at)
         return bt
@@ -131,13 +141,13 @@ class MarketDataManager:
             self._connections[("public", shard_id)] = self._shard_factory(
                 ws_base=self.ws_base, category=StreamCategory.PUBLIC,
                 streams=self.build_public_streams(symbols), on_message=self._on_book_ticker,
-                proxy=self.proxy,
+                proxy=self.proxy, on_disconnect=self.on_disconnect,
             )
         for shard_id, symbols in self.market_plan.assignments.items():
             self._connections[("market", shard_id)] = self._shard_factory(
                 ws_base=self.ws_base, category=StreamCategory.MARKET,
                 streams=self.build_market_streams(symbols), on_message=self._on_kline,
-                proxy=self.proxy,
+                proxy=self.proxy, on_disconnect=self.on_disconnect,
             )
         return self._connections
 

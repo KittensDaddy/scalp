@@ -211,7 +211,8 @@ def test_reject_expected_edge_too_low():
 
 def test_all_20_caems_engine_rejection_reasons_are_reachable():
     """Engine fixtures cover the original 20 CAEMS reasons. OBSERVE_ONLY /
-    DATA_UNAVAILABLE are plugin/microstructure-layer reasons outside evaluate()."""
+    DATA_UNAVAILABLE / COOLDOWN are plugin- and runner-layer reasons decided
+    outside evaluate()."""
     exercised = {
         RejectionReason.KILL_SWITCH, RejectionReason.SYMBOL_DISABLED,
         RejectionReason.SHORTS_DISABLED, RejectionReason.STALE_MARKET_DATA,
@@ -227,6 +228,7 @@ def test_all_20_caems_engine_rejection_reasons_are_reachable():
     assert exercised == set(RejectionReason) - {
         RejectionReason.OBSERVE_ONLY,
         RejectionReason.DATA_UNAVAILABLE,
+        RejectionReason.COOLDOWN,
     }
     assert len(exercised) == 20
 

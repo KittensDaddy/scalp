@@ -64,7 +64,7 @@ def resolve_with_provenance(
             provenance[k] = ProvenanceEntry(key=k, value=v, layer=layer)
 
     # defaults first (all gate/risk/exit/cost fields)
-    for section_name in ("gates", "risk", "exits", "cost"):
+    for section_name in ("gates", "risk", "exits", "cost", "cooldowns"):
         section = getattr(defaults, section_name)
         for k, v in section.model_dump().items():
             provenance[k] = ProvenanceEntry(key=k, value=v, layer="defaults")

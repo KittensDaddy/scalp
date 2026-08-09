@@ -63,7 +63,7 @@ def test_evaluation_valid_rejected():
     assert ev.rejection_reason == RejectionReason.DEAD_BAND_TOO_SMALL
 
 
-def test_all_22_rejection_reasons_present():
+def test_all_23_rejection_reasons_present():
     expected = {
         "NO_5M_TREND", "DEAD_BAND_TOO_SMALL", "STRENGTH_TOO_EXTREME",
         "PRICE_CONFIRMATION_FAILED", "ENTRY_TOO_EXTENDED", "LOW_VOLUME",
@@ -71,7 +71,7 @@ def test_all_22_rejection_reasons_present():
         "BTC_REGIME_VETO", "COST_TOO_HIGH", "EXPECTED_EDGE_TOO_LOW",
         "RISK_LIMIT", "DRAW_DOWN_LIMIT", "STALE_MARKET_DATA", "INVALID_BOOK",
         "SYMBOL_DISABLED", "LIQUIDITY_TOO_LOW", "KILL_SWITCH", "SHORTS_DISABLED",
-        "DATA_UNAVAILABLE", "OBSERVE_ONLY",
+        "DATA_UNAVAILABLE", "OBSERVE_ONLY", "COOLDOWN",
     }
     assert {r.value for r in RejectionReason} == expected
-    assert len(expected) == 22
+    assert len(expected) == 23

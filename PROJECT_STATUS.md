@@ -67,7 +67,7 @@ instrumentation + pre-registered maker/taker decision rule.
   attempts → `entry_attempts`, lifecycle → `trade_events`, score samples →
   `calibration_stats` (`persistence/trades_repo.py`)
 
-Test suite: 438 passed. `uv run pytest -q` and `uv run ruff check src tests` both
+Test suite: 475 passed. `uv run pytest -q` and `uv run ruff check src tests` both
 clean. Frontend: `npx tsc -b` clean (needs `npm install` first — a bare checkout
 reports missing `node`/`vite/client` type roots, which is a dependency artifact,
 not a type error).
@@ -84,60 +84,80 @@ yet): `OFI_BTC`, `ETH_LEADLAG`, `ALT_RESIDUAL`, `SWEEP_MID`, `COMPRESS_SMALL`,
 plugin; paper can fill non-CAEMS signals. Sub-second OFI/depth-recovery gates
 remain future work once L2/trade-tape feeds exist.
 
-## Paper-run readiness audit (2026-08-09)
+## Paper-run readiness (audited + fixed 2026-08-09)
 
-`scalping --run` with `SCALPING_ENVIRONMENT=paper` starts and trades end to end,
-so a campaign can be launched today. But five wiring gaps sit between "it runs"
-and "the run produces the evidence PLAN §8 asks for". Fix 1–2 before treating
-any campaign as the §8 sample; 3–4 before the numbers mean anything.
+The audit found the `--run` paper path started and traded end to end, but that
+what it recorded would not have been usable as the PLAN §8 sample. All findings
+below are **fixed**; each has tests that fail against the old behavior.
 
-1. **PaperVenue is not fed by the WS book.** `MarketDataManager` takes only
-   `registry` (`market_data/manager.py:40`); the venue's only book source is the
-   1 Hz REST `book_ticker_all()` poll in `cli/__main__.py:_poll_books`. With
-   `PaperExecutor.entry_ttl_s = 0.05`, a resting GTX order is queried 50 ms after
-   placement against a snapshot that can be a second old, and
-   `_try_fill_resting_orders` needs `ask <= bid` to fill — so **maker entries
-   never fill**. Every paper entry lands as `TAKER_CONVERT` or `ABANDONED`, and
-   the whole campaign carries a taker cost basis.
-2. **Markouts are never computed.** `save_entry_attempt`
-   (`persistence/trades_repo.py:116-119`) hardcodes all four `markout_*` columns
-   to `None`. `accounting/markouts.py` implements the pre-registered decision
-   rule but has no data source, so §8 criterion 6 (maker/taker resolved) cannot
-   be evaluated — independently of gap 1.
-3. **Cooldowns are checked but never set.** `StrategyRunner` gates on
-   `cooldowns.is_active` (`scanner/runner.py:108`); nothing in the runtime ever
-   calls `CooldownManager.set` / `set_api_reconnect_cooldown`, and the
-   `cooldowns` table is not loaded at startup. A symbol can re-enter immediately
-   after a stop-out.
-4. **Drawdown machine is not in the loop.** `DrawdownState` is referenced only by
-   `edge/evidence_bar.py` and tests. Nothing feeds closed-trade R into it during
-   `--run`, so `daily_loss_cap_r=3.0` / `weekly_loss_cap_r=6.0` never halt the
-   campaign and §8 criterion 4 (max DD ≤ 6R) is only measurable after the fact.
-5. **No evidence-bar readout.** `evaluate_evidence_bar` is implemented and tested
-   but has no endpoint or CLI; §8 progress has to be assembled by hand from
-   `/analytics` plus manual counts.
+1. **Venue now sees the book at WS rate.** `MarketDataManager` takes
+   `book_sinks`, and `--run` subscribes `PaperVenue.on_book_ticker`. Previously
+   the venue only got one registry snapshot replayed per eval tick (~1 Hz), and
+   `entry_ttl_s` was `0.05` — a resting GTX order was queried back 50 ms after
+   placement, before the book could move through it, so **no maker entry could
+   ever fill**. Every attempt became `TAKER_CONVERT`/`ABANDONED` and the campaign
+   would have carried a taker-only cost basis. TTL now defaults to the strategy's
+   3 s (`SCALPING_PAPER_ENTRY_TTL_S`).
+2. **Markouts are recorded.** `PaperExecutor` samples mid at +5 s / +30 s after
+   each fill and writes back to the entry attempt (`save_entry_attempt` now
+   flushes and returns the row id; `update_entry_attempt_markouts` fills them in
+   per offset). §8 criterion 6 has data instead of four hardcoded `None`s.
+3. **Cooldowns are set, persisted, and restored.** Closed trades cool the symbol
+   down (`post_loss_s` > `post_trade_s`); WS disconnects set a global
+   `api_reconnect` cooldown; `--run` reloads active cooldowns from the DB at
+   startup. `StrategyRunner` now checks global scope as well as symbol scope, and
+   reports the new `RejectionReason.COOLDOWN` rather than `SYMBOL_DISABLED`.
+4. **Drawdown survives restarts and rolls over.** `PaperExecutor.sync_closes`
+   already fed `risk.on_trade_closed`, but the protection-timeout close path
+   skipped it, nothing ever called `reset_daily`/`reset_weekly` (so the first day
+   to breach `daily_loss_cap_r` halted entries permanently), and state was
+   in-memory only. Now: `PeriodTracker` (`runtime/periods.py`) rolls the UTC
+   day/week boundaries from the tick, `load_drawdown_snapshot` rebuilds daily and
+   weekly R from the trade record at startup, and every close path records.
+5. **Evidence bar has a readout.** `GET /api/v1/evidence` and `scalping
+   --evidence` evaluate all eight §8 criteria against live campaign data
+   (`edge/campaign.py`). Testnet-only criteria (§8.7 reconciliation, §8.8 kill
+   switch) report unverified unless explicitly operator-asserted, so a paper
+   campaign can never render an overall PASS on its own. An unmeasured protection
+   gap fails rather than defaulting to something flattering.
+
+Two execution-correctness bugs surfaced while wiring the above, both of which
+would have corrupted the sample rather than merely thinned it:
+
+- **Phantom positions from orphaned protective orders.** Stop and TP were tracked
+  independently; whichever fired left the other live, and the survivor would
+  later trigger against a flat book and *open* a position (`_apply_position_delta`
+  creates one when none exists). Rare at 1 Hz, near-certain at WS rate. The venue
+  now applies OCO semantics and reduce-only closes can never open or flip.
+- **Exits booked at a stale mark.** `sync_closes` priced the exit at
+  `trade.current_price` — whatever the last eval tick marked — so a stop that
+  triggered mid-tick was recorded at up to a second-old price. Since R is the
+  entire evidence base, that biased every trade. The venue now records the actual
+  close fill (touch price at trigger) and the executor books R against it.
 
 Operational preconditions for the run itself:
 
 - Symbol resolution and warm both go through REST. Banned IP with no proxy →
   `--run` exits 1 at universe build. Set `SCALPING_HTTP_PROXY`/`_PROXIES`.
-- `_poll_books` swallows failures at `log.debug`. If the batch call is failing,
-  the scanner still shows WS-driven rows while the paper venue silently fills
-  nothing — raise that to `warning` before a long unattended run.
+- `_poll_books` failures now log at `warning` (they were `debug`, which made a
+  failing poll look identical to a quiet market).
 - `SCALPING_WARM_REGISTRY=false` with no proxy means no REST warm; 5m EMAs need
   hours of WS bars before rows become tradeable. A proxy auto-enables warm.
 - Defaults at launch: 300-symbol universe, `paper_equity=10_000`,
   `risk_per_trade_pct=0.15`, `max_positions_total=10`.
+- Check progress any time with `scalping --evidence` (exit 0 only if the whole
+  bar passes) or `GET /api/v1/evidence`.
 
 ## Remaining (operational / evidence)
 
-Code for S1–S12 + L1–L6 + supervisor/CLI + production tick/paper path is in place.
-Beyond the five gaps above, what remains is runtime evidence and soak:
+Code for S1–S12 + L1–L6 + supervisor/CLI + production tick/paper path is in place,
+and the campaign now instruments itself. What remains is runtime evidence and soak:
 
 - **10c paper campaign** to PLAN §8 evidence bar (n≥300 trades, etc.) —
   `SCALPING_CONTROL_TOKEN=… SCALPING_DASHBOARD_UNKILL_TOKEN=… scalping --run`
-  with `SCALPING_ENVIRONMENT=paper`. Closed trades, entry attempts, trade events,
-  and calibration samples now persist automatically into the DB.
+  with `SCALPING_ENVIRONMENT=paper`. Closed trades, entry attempts, markouts,
+  trade events, cooldowns, and calibration samples all persist automatically.
+  Track progress with `scalping --evidence`.
 - **S13 testnet soak** ≥1 week (ops), reconciliation across forced restarts.
 - **S14 tiny-capital live** — only after evidence bar; max 1–2 positions, human
   review of first N trades.
@@ -158,6 +178,12 @@ Beyond the five gaps above, what remains is runtime evidence and soak:
   empty with a comment explaining what wires it up later.
 - Probabilities only from calibration store with min-sample gating (S10); S8 health
   labels remain geometry-only.
+- A module that exists and is unit-tested is not wired. Cooldowns, markouts, and
+  the evidence bar were all "done" by that standard while nothing in `--run` ever
+  called them. New campaign-evidence code gets a test that drives it through the
+  runtime path, not just the pure function.
+- Paper fills are priced off what the venue actually filled at, never off the last
+  mark an eval tick happened to take.
 - Candle backtests always carry the sanity-only banner; they gate Lab activation but
   never substitute for the paper evidence bar.
 - TanStack Table must stay pinned to `^8`.

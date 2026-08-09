@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Callable
 from enum import StrEnum
 
 import websockets
 
 from scalping.exchanges.base.errors import WebSocketCategoryMixError
+
+log = logging.getLogger(__name__)
 
 
 class StreamCategory(StrEnum):
@@ -66,6 +69,7 @@ class BinanceWSConnection:
         on_message: Callable[[dict], None],
         max_backoff_s: float = 30.0,
         proxy: str | None = None,
+        on_disconnect: Callable[[], None] | None = None,
     ) -> None:
         validate_single_category(streams)
         if _category_of(streams[0]) != category:
@@ -78,12 +82,23 @@ class BinanceWSConnection:
         self._on_message = on_message
         self._max_backoff_s = max_backoff_s
         self._proxy = proxy
+        self._on_disconnect = on_disconnect
         self._stop = asyncio.Event()
 
     def _url(self) -> str:
         path = "/" + self.category.value
         joined = "/".join(self.streams)
         return f"{self._ws_base}{path}/stream?streams={joined}"
+
+    def _notify_disconnect(self) -> None:
+        """Every connection loss is a data gap, whether the socket errored or the
+        server closed it cleanly — both feed the "API reconnect" cooldown."""
+        if self._on_disconnect is None:
+            return
+        try:
+            self._on_disconnect()
+        except Exception:  # a cooldown hook must never kill the reconnect loop
+            log.exception("on_disconnect hook failed for %s", self.category)
 
     async def run(self) -> None:
         backoff = 1.0
@@ -102,9 +117,16 @@ class BinanceWSConnection:
             except (websockets.exceptions.WebSocketException, OSError):
                 if self._stop.is_set():
                     break
-                jitter = backoff * (0.5 + 0.5 * _jitter())
-                await asyncio.sleep(jitter)
-                backoff = min(self._max_backoff_s, backoff * 2)
+                self._notify_disconnect()
+            else:
+                # Clean server close still drops the feed; back off rather than
+                # spin, otherwise a server that closes immediately hot-loops.
+                if self._stop.is_set():
+                    break
+                self._notify_disconnect()
+            jitter = backoff * (0.5 + 0.5 * _jitter())
+            await asyncio.sleep(jitter)
+            backoff = min(self._max_backoff_s, backoff * 2)
 
     def stop(self) -> None:
         self._stop.set()

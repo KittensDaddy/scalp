@@ -16,6 +16,7 @@ from scalping.api.routers import (
     calibration,
     control,
     developing,
+    evidence,
     health,
     lab,
     positions,
@@ -97,5 +98,6 @@ def create_app(
     app.include_router(positions.router)
     app.include_router(analytics.router)
     app.include_router(calibration.router)
+    app.include_router(evidence.router)
     app.include_router(lab.router)
     return app

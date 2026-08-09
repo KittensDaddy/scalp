@@ -79,6 +79,10 @@ class RejectionReason(StrEnum):
     SHORTS_DISABLED = "SHORTS_DISABLED"
     DATA_UNAVAILABLE = "DATA_UNAVAILABLE"
     OBSERVE_ONLY = "OBSERVE_ONLY"
+    # Distinct from SYMBOL_DISABLED: the symbol is tradeable, it is just serving
+    # a post-trade or post-reconnect timeout. Conflating the two hides how much
+    # of a campaign was spent cooling down.
+    COOLDOWN = "COOLDOWN"
 
 
 class StrategyEvaluation(BaseModel):

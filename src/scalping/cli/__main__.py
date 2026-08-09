@@ -23,6 +23,7 @@ from scalping.api.broadcast import Broadcaster
 from scalping.config.class_resolver import SymbolClassResolver, volume_ranks_from_tickers
 from scalping.config.frozen import FrozenParams
 from scalping.config.settings import get_settings
+from scalping.edge.campaign import build_campaign_evidence
 from scalping.exchanges.base.rate_limiter import RateLimiter
 from scalping.exchanges.binance.rest import BinanceRestClient
 from scalping.exchanges.proxy import choose_proxy, parse_proxy_list, proxy_log_label
@@ -33,7 +34,11 @@ from scalping.market_data.registry import SymbolStateRegistry
 from scalping.monitoring.active_trades import ActiveTradeService
 from scalping.monitoring.logging import configure_logging
 from scalping.paper.venue import PaperVenue
+from scalping.persistence.campaign_repo import load_drawdown_snapshot
+from scalping.persistence.cooldown_repo import load_active_cooldowns
 from scalping.persistence.engine import init_db, make_engine
+from scalping.risk.drawdown import DrawdownState
+from scalping.risk.engine import RiskEngine
 from scalping.risk.kill_switch import KillSwitch
 from scalping.runtime.paper_executor import PaperExecutor
 from scalping.runtime.supervisor import SupervisorConfig, TraderSupervisor
@@ -55,6 +60,31 @@ def _check_config() -> int:
     print(f"database_url: {settings.database_url}")
     print("OK")
     return 0
+
+
+async def _evidence_async() -> int:
+    """Print the PLAN §8 go-live bar against everything persisted so far."""
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    await init_db(engine)
+    try:
+        async with async_sessionmaker(engine)() as session:
+            campaign = await build_campaign_evidence(session, config=settings.defaults)
+    finally:
+        await engine.dispose()
+
+    print(campaign.report.summary())
+    print()
+    print(
+        f"sample: {campaign.n_trades} trades, {campaign.n_entry_attempts} entry attempts, "
+        f"{campaign.n_markouts} markouts recorded"
+    )
+    print(f"maker/taker: {campaign.maker_taker.detail}")
+    print(
+        "note: reconciliation and kill-switch criteria are testnet ops steps and "
+        "report unverified here — paper data alone cannot clear the bar."
+    )
+    return 0 if campaign.report.passed else 1
 
 
 async def _init_db_async() -> None:
@@ -223,7 +253,9 @@ async def _poll_books(
     try:
         rows = await rest.book_ticker_all()
     except Exception as exc:
-        log.debug("book poll batch failed: %s", exc)
+        # Warning, not debug: a silent failure here looks identical to a quiet
+        # market — the scanner keeps showing WS rows while paper fills nothing.
+        log.warning("book poll batch failed: %s", exc)
         return
     now = datetime.now(UTC)
     for raw in rows:
@@ -307,15 +339,45 @@ async def _run_async() -> int:
         scanner=scanner, developing=developing, enabled_ids=enabled_ids
     )
 
+    # Restore cooldowns and the drawdown window from persisted data before the
+    # first tick: a restart must not hand the strategy a fresh loss budget or
+    # let a symbol that just stopped out re-enter immediately.
+    async with session_factory() as session:
+        for cd in await load_active_cooldowns(session, now=datetime.now(UTC)):
+            runner.cooldowns.set(cd.scope, cd.key, cd.reason, cd.until)
+        restored = await load_drawdown_snapshot(session)
+    if runner.cooldowns.all_active(datetime.now(UTC)):
+        print(
+            f"restored {len(runner.cooldowns.all_active(datetime.now(UTC)))} active cooldowns",
+            flush=True,
+        )
+
     venue: PaperVenue | None = None
     paper_executor: PaperExecutor | None = None
     if settings.environment in ("paper", "backtest", "replay"):
         venue = PaperVenue()
+        risk_engine = RiskEngine(
+            drawdown=DrawdownState(
+                daily_r=restored.daily_r,
+                weekly_r=restored.weekly_r,
+                trade_r_history=list(restored.trade_r_history),
+            )
+        )
+        print(
+            f"drawdown restored: daily={restored.daily_r:+.2f}R "
+            f"weekly={restored.weekly_r:+.2f}R over {len(restored.trade_r_history)} trades",
+            flush=True,
+        )
         paper_executor = PaperExecutor(
             venue=venue,
             active_trades=active_trades,
             config=config,
+            risk=risk_engine,
             equity=settings.paper_equity,
+            entry_ttl_s=settings.paper_entry_ttl_s,
+            markout_short_s=settings.markout_short_s,
+            markout_long_s=settings.markout_long_s,
+            cooldowns=runner.cooldowns,
             sessionmaker=session_factory,
             config_hash=config.config_hash(),
         )
@@ -348,8 +410,26 @@ async def _run_async() -> int:
     # Mutable watchlist shared by tick / poll / refresh.
     watchlist = list(symbols)
 
+    def _on_ws_disconnect() -> None:
+        """A dropped feed means the book we would trade on is stale. Global
+        cooldown until it has had time to re-sync (PLAN §K "API reconnect")."""
+        seconds = config.cooldowns.api_reconnect_s
+        if seconds <= 0:
+            return
+        until = datetime.now(UTC) + timedelta(seconds=seconds)
+        runner.cooldowns.set("global", "*", "api_reconnect", until)
+        log.warning("ws disconnect — global cooldown for %.0fs", seconds)
+
+    # The venue subscribes to the WS book directly. Replaying one snapshot per
+    # eval tick makes a GTX order's TTL expire before the book can ever cross
+    # it, which silently turns the campaign into a taker-only sample.
+    book_sinks = [venue.on_book_ticker] if venue is not None else []
     md = MarketDataManager(
-        ws_base=settings.binance_ws_base, registry=registry, proxy=proxy
+        ws_base=settings.binance_ws_base,
+        registry=registry,
+        proxy=proxy,
+        book_sinks=book_sinks,
+        on_disconnect=_on_ws_disconnect,
     )
     md.rebalance(set(watchlist))
     connections = md.build_connections()
@@ -475,6 +555,8 @@ async def _run_async() -> int:
     finally:
         refresh_task.cancel()
         await supervisor.stop()
+        if paper_executor is not None:
+            await paper_executor.aclose()
         for t in ws_tasks:
             t.cancel()
         await asyncio.gather(refresh_task, *ws_tasks, return_exceptions=True)
@@ -489,6 +571,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--init-db", action="store_true")
     parser.add_argument("--run", action="store_true", help="start trading-loop + dashboard API")
     parser.add_argument("--dashboard", action="store_true", help="serve FastAPI dashboard only")
+    parser.add_argument(
+        "--evidence", action="store_true", help="print the PLAN §8 go-live evidence bar"
+    )
     args = parser.parse_args(argv)
 
     if args.version:
@@ -500,6 +585,8 @@ def main(argv: list[str] | None = None) -> int:
         asyncio.run(_init_db_async())
         print("OK")
         return 0
+    if args.evidence:
+        return asyncio.run(_evidence_async())
     if args.dashboard:
         return _dashboard()
     if args.run:

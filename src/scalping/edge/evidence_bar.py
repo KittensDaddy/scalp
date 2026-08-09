@@ -6,6 +6,7 @@ result after the fact: this module is the only place that gets to say "go".
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 
@@ -107,10 +108,14 @@ def evaluate_evidence_bar(
     )
 
     gap_ok = inputs.protection_gap_p99_ms < 1500.0
+    gap_detail = (
+        f"{inputs.protection_gap_p99_ms:.0f}ms"
+        if math.isfinite(inputs.protection_gap_p99_ms)
+        else "unmeasured (no protection samples recorded)"
+    )
     criteria.append(
         CriterionResult(
-            "protection_gap", gap_ok,
-            f"p99 t_protection = {inputs.protection_gap_p99_ms:.0f}ms (need < 1500ms)",
+            "protection_gap", gap_ok, f"p99 t_protection = {gap_detail} (need < 1500ms)"
         )
     )
 

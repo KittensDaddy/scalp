@@ -78,6 +78,22 @@ class CostConfig(BaseModel):
     safety_buffer_bps: float = 1.0
 
 
+class CooldownConfig(BaseModel):
+    """How long a symbol sits out after a trade or a feed interruption.
+
+    `StrategyRunner` has always *checked* cooldowns; these are the durations the
+    runtime now sets them for. Losses cool down longer than wins: re-entering the
+    same symbol immediately after a stop-out is how one adverse regime turns into
+    a cluster of correlated losses.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    post_trade_s: float = 60.0
+    post_loss_s: float = 300.0
+    api_reconnect_s: float = 30.0
+
+
 class SymbolMeta(BaseModel):
     """Universe / listing metadata used by preset resolution, not by CAEMS rules."""
 
@@ -105,6 +121,7 @@ class EffectiveConfig(BaseModel):
     exits: ExitConfig = Field(default_factory=ExitConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     cost: CostConfig = Field(default_factory=CostConfig)
+    cooldowns: CooldownConfig = Field(default_factory=CooldownConfig)
     symbol_meta: SymbolMeta = Field(default_factory=SymbolMeta)
 
     protection_timeout_ms: int = 2000
@@ -184,6 +201,14 @@ class Settings(BaseSettings):
     # kline_1m streams (avoids Binance IP bans on large universes).
     warm_registry: bool = False
     paper_equity: float = 10_000.0
+    # GTX maker entry TTL, per strategy-caems.md §Order flow step 2. Must stay
+    # long enough for the book to actually move against a resting order —
+    # sub-second values make maker fills impossible and turn the whole campaign
+    # into a taker-only sample.
+    paper_entry_ttl_s: float = 3.0
+    # Offsets at which post-fill markouts are sampled (adverse-selection rule).
+    markout_short_s: float = 5.0
+    markout_long_s: float = 30.0
     # Empty → DOCS/caems_presets.yaml (repo root). Per-pair class routing for --run.
     presets_path: str = ""
     # Comma list of strategy_ids. Empty → caems_v2 + ALT_RESIDUAL + microstructure stubs.
@@ -210,6 +235,7 @@ def get_settings() -> Settings:
 
 
 __all__ = [
+    "CooldownConfig",
     "CostConfig",
     "EffectiveConfig",
     "ExitConfig",
