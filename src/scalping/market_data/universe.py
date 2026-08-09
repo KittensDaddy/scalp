@@ -80,10 +80,13 @@ def evaluate_universe(
         if not spread_ok:
             reasons.append("SPREAD_TOO_WIDE")
 
-        history = history_days_by_symbol.get(sym.symbol)
-        history_ok = history is not None and history >= config.min_history_days
-        if not history_ok:
-            reasons.append("INSUFFICIENT_HISTORY")
+        if config.min_history_days <= 0:
+            history_ok = True
+        else:
+            history = history_days_by_symbol.get(sym.symbol)
+            history_ok = history is not None and history >= config.min_history_days
+            if not history_ok:
+                reasons.append("INSUFFICIENT_HISTORY")
 
         entries.append(
             UniverseEntry(
@@ -163,9 +166,12 @@ async def build_universe(rest: BinanceRestClient, config: UniverseConfig) -> lis
         if spread_by_symbol.get(s.symbol, float("inf")) <= config.max_spread_bps
     ]
 
+    # Per-symbol earliest-kline probes are ~1 REST call each and IP-ban easily
+    # at 300-symbol scale. Default paper config sets min_history_days=0 to skip.
     history_by_symbol: dict[str, float] = {}
-    for s in spread_survivors:
-        history_by_symbol[s.symbol] = await _kline_history_days(rest, s.symbol)
+    if config.min_history_days > 0:
+        for s in spread_survivors:
+            history_by_symbol[s.symbol] = await _kline_history_days(rest, s.symbol)
 
     return evaluate_universe(
         exchange_symbols, volume_by_symbol, spread_by_symbol, history_by_symbol, config

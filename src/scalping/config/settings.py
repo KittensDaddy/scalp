@@ -166,7 +166,8 @@ class Settings(BaseSettings):
     # ~$100k + 10bps spread ≈ 300 names; raise for a tighter liquid set.
     universe_min_quote_volume_usdt: float = 100_000.0
     universe_max_spread_bps: float = 10.0
-    universe_min_history_days: int = 7
+    # 0 = skip per-symbol kline history REST probes (avoids Binance IP bans).
+    universe_min_history_days: int = 0
     # How often to rebuild the liquid watchlist when run_symbols=auto.
     # Scanner score still re-ranks every tick inside that watchlist.
     universe_refresh_hours: float = 4.0

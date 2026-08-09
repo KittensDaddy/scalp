@@ -58,6 +58,37 @@ async def test_build_universe_end_to_end_yields_100_plus_eligible():
     assert len(entries) == n
 
 
+async def test_build_universe_skips_klines_when_history_disabled():
+    kline_calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/fapi/v1/exchangeInfo":
+            return httpx.Response(200, json={"symbols": _make_symbols(3)})
+        if path == "/fapi/v1/ticker/24hr":
+            return httpx.Response(
+                200,
+                json=[{"symbol": f"SYM{i}USDT", "quoteVolume": "50000000"} for i in range(3)],
+            )
+        if path == "/fapi/v1/ticker/bookTicker":
+            return httpx.Response(
+                200,
+                json=[
+                    {"symbol": f"SYM{i}USDT", "bidPrice": "100.0", "askPrice": "100.01"}
+                    for i in range(3)
+                ],
+            )
+        if path == "/fapi/v1/klines":
+            kline_calls.append("hit")
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected path {path}")
+
+    client = _client_with_handler(handler)
+    entries = await build_universe(client, UniverseConfig(min_history_days=0))
+    assert kline_calls == []
+    assert sum(1 for e in entries if e.eligible) == 3
+
+
 async def test_build_universe_cascades_skip_ineligible_symbols():
     """Symbols failing the volume filter should never trigger a kline history
     fetch — the cascade must actually skip stages, not just report them skipped."""

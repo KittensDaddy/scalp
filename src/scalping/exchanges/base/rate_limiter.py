@@ -69,8 +69,9 @@ class RateLimiter:
             # tunable via config without code changes.
             Budget.ORDER: TokenBucket(capacity=300, refill_per_s=300 / 60),
             Budget.ALGO_ORDER: TokenBucket(capacity=300, refill_per_s=300 / 60),
-            Budget.MARKET: TokenBucket(capacity=2400, refill_per_s=2400 / 60),
-            Budget.BACKFILL: TokenBucket(capacity=1200, refill_per_s=1200 / 60),
+            Budget.MARKET: TokenBucket(capacity=1200, refill_per_s=1200 / 60),
+            # Warm/backfill must stay well under Binance IP bans (~2400 weight/min).
+            Budget.BACKFILL: TokenBucket(capacity=400, refill_per_s=400 / 60),
         }
 
     async def acquire(self, budget: Budget, weight: float = 1.0, *, block: bool = True) -> None:

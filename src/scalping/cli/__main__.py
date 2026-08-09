@@ -169,28 +169,16 @@ async def _warm_one(
     end: datetime,
     sem: asyncio.Semaphore,
 ) -> None:
-    from scalping.domain.models import BookTicker
-
     async with sem:
         try:
+            # limit=500 keeps Binance kline weight low (280 bars fit in one page).
             candles = await fetch_klines_range(
-                rest, symbol=symbol, interval="1m", start=start, end=end
+                rest, symbol=symbol, interval="1m", start=start, end=end, limit=500
             )
             for candle in candles:
                 registry.on_kline_1m_closed(candle)
             for c5 in aggregate_candles(candles, "5m"):
                 registry.on_kline_5m_closed(c5)
-            bt = await rest.book_ticker(symbol)
-            registry.on_book_ticker(
-                BookTicker(
-                    symbol=symbol,
-                    bid_price=float(bt["b"]),
-                    bid_qty=float(bt["B"]),
-                    ask_price=float(bt["a"]),
-                    ask_qty=float(bt["A"]),
-                    event_time=datetime.now(UTC),
-                )
-            )
         except Exception as exc:
             log.warning("warm failed for %s: %s", symbol, exc)
 
@@ -201,14 +189,17 @@ async def _warm_registry(
     symbols: list[str],
     *,
     bars: int = 280,
-    concurrency: int = 6,
+    concurrency: int = 2,
 ) -> None:
+    """Seed indicators slowly — 300 symbols × klines will IP-ban if rushed."""
     end = datetime.now(UTC)
     start = end - timedelta(minutes=bars + 5)
     sem = asyncio.Semaphore(concurrency)
     await asyncio.gather(
         *[_warm_one(rest, registry, s, start=start, end=end, sem=sem) for s in symbols]
     )
+    # One batch bookTicker instead of N per-symbol calls.
+    await _poll_books(rest, registry, None, symbols)
 
 
 async def _poll_books(
@@ -270,6 +261,13 @@ async def _run_async() -> int:
         symbols = await _resolve_symbols(rest, settings, session_factory)
     except Exception as exc:
         print(f"failed to resolve symbols: {exc}", file=sys.stderr)
+        msg = str(exc)
+        if "418" in msg or "banned until" in msg.lower() or "-1003" in msg:
+            print(
+                "Binance IP ban — wait until the timestamp clears, then retry.\n"
+                "Universe no longer probes per-symbol kline history; warm is throttled.",
+                file=sys.stderr,
+            )
         await engine.dispose()
         return 1
 

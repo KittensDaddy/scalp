@@ -67,6 +67,19 @@ def test_insufficient_history_rejected():
     assert "INSUFFICIENT_HISTORY" in entries[0].reasons
 
 
+def test_history_check_skipped_when_min_days_zero():
+    entries = evaluate_universe(
+        [_sym()],
+        {"BTCUSDT": 50_000_000.0},
+        {"BTCUSDT": 1.0},
+        {},
+        UniverseConfig(min_history_days=0),
+    )
+    assert entries[0].eligible is True
+    assert entries[0].filters_passed["history"] is True
+    assert "INSUFFICIENT_HISTORY" not in entries[0].reasons
+
+
 def test_missing_data_treated_as_failing():
     entries = evaluate_universe([_sym()], {}, {}, {}, UniverseConfig())
     assert entries[0].eligible is False
