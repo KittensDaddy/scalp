@@ -68,14 +68,18 @@ def create_app(
         candle_loader=candle_loader,
     )
 
-    # Accept both localhost and 127.0.0.1 for the Vite origin (browsers treat them
-    # as different origins; --host 127.0.0.1 is common in this repo).
-    origins = {settings.dashboard_cors_origin}
-    o = settings.dashboard_cors_origin
-    if "localhost" in o:
-        origins.add(o.replace("localhost", "127.0.0.1"))
-    if "127.0.0.1" in o:
-        origins.add(o.replace("127.0.0.1", "localhost"))
+    # Accept configured CORS origins. Comma-separated list supported.
+    # Also mirror localhost ↔ 127.0.0.1 for each entry that uses either host.
+    origins: set[str] = set()
+    for part in settings.dashboard_cors_origin.split(","):
+        o = part.strip()
+        if not o:
+            continue
+        origins.add(o)
+        if "localhost" in o:
+            origins.add(o.replace("localhost", "127.0.0.1"))
+        if "127.0.0.1" in o:
+            origins.add(o.replace("127.0.0.1", "localhost"))
 
     app.add_middleware(
         CORSMiddleware,

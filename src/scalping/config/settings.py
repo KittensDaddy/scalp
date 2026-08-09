@@ -159,6 +159,8 @@ class Settings(BaseSettings):
 
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 8000
+    # Comma-separated browser origins allowed to call the API (CORS).
+    # LAN example: http://192.168.1.10:5173,http://localhost:5173
     dashboard_cors_origin: str = "http://localhost:5173"
 
     telegram_bot_token: str = ""
