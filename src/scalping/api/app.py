@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from scalping.api.broadcast import Broadcaster
@@ -100,4 +101,10 @@ def create_app(
     app.include_router(calibration.router)
     app.include_router(evidence.router)
     app.include_router(lab.router)
+
+    # Mounted last so every /api/v1 route is matched first and only unclaimed
+    # paths fall through to the SPA.
+    static_dir = settings.static_dir()
+    if static_dir is not None:
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="dashboard")
     return app

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -176,6 +177,11 @@ class Settings(BaseSettings):
 
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 8000
+    # Built dashboard (`cd frontend && npm run build`) served by the API itself.
+    # Empty → auto-detect `frontend/dist` in the repo. Serving it same-origin is
+    # what makes a headless miniserver reachable over one port with no Vite
+    # process and no CORS involved at all.
+    dashboard_static_dir: str = ""
     # Comma-separated browser origins allowed to call the API (CORS).
     # LAN example: http://192.168.1.10:5173,http://localhost:5173
     dashboard_cors_origin: str = "http://localhost:5173"
@@ -215,6 +221,14 @@ class Settings(BaseSettings):
     enabled_strategies: str = ""
 
     defaults: EffectiveConfig = Field(default_factory=EffectiveConfig)
+
+    def static_dir(self) -> Path | None:
+        """Directory of the built dashboard, or None when it hasn't been built."""
+        if self.dashboard_static_dir:
+            explicit = Path(self.dashboard_static_dir).expanduser()
+            return explicit if explicit.is_dir() else None
+        default = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+        return default if default.is_dir() else None
 
     def use_universe(self) -> bool:
         return self.run_symbols.strip().lower() in {"auto", "universe", "*"}

@@ -18,7 +18,14 @@ function defaultApiBase(): string {
     return env;
   }
   if (typeof window !== "undefined" && window.location?.hostname) {
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
+    const { protocol, hostname, port, origin } = window.location;
+    // Vite dev server: the API is the sibling process on 8000.
+    if (port === "5173") {
+      return `${protocol}//${hostname}:8000`;
+    }
+    // Served by the API itself (the headless/miniserver path) — same origin, so
+    // no CORS is involved and it works on whatever port the API is bound to.
+    return origin;
   }
   return "http://127.0.0.1:8000";
 }
