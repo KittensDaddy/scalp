@@ -41,6 +41,49 @@ calls `create_app()` with a seeded `ScannerService`/`DevelopingSetupsService`.
 Test suite: 359 passed. `uv run pytest -q` and `uv run ruff check src tests` both
 clean as of this commit. Frontend: `npx tsc -b && npm run build` clean.
 
+## New strategy track added (not yet implemented)
+
+`DOCS/strategy-microstructure-multiasset.md` — a second, deliberately separate
+strategy family covering 8 asset-group-specific microstructure strategies
+(`OFI_BTC`, `ETH_LEADLAG`, `ALT_RESIDUAL`, `SWEEP_MID`, `COMPRESS_SMALL`,
+`LISTING_OR`, `VSHOCK`, `PUMP_DEFENSIVE`). This is explicitly **not** a CAEMS
+variant — CAEMS is 1m/5m EMA-momentum; this track is order-flow-imbalance/
+microprice/relative-value/liquidity-sweep/volatility-regime/event-detection based,
+operating on second-level to sub-second horizons for BTC/ETH down through minutes
+for large/mid/small caps.
+
+Nothing in this track has code yet. Per the doc's own recommended build order:
+1. Keep CAEMS as its own untouched benchmark strategy (already true — `caems/`
+   package is independent of anything this track would add).
+2. Build a shared event/L2 replay + execution simulator (queue-aware maker fills,
+   latency-injected taker fills, nonlinear impact model) — this is new
+   infrastructure, distinct from the existing candle-only `backtest/` module and
+   the tick-level `paper/venue.py`, which don't model order-book depth/queue
+   position at all.
+3. Implement `OFI_BTC` and `ALT_RESIDUAL` first (best research conditions).
+4. Then `ETH_LEADLAG` and `SWEEP_MID`.
+5. Only then `COMPRESS_SMALL`, `LISTING_OR`, `VSHOCK` (thinner liquidity, harder
+   to backtest honestly).
+6. `PUMP_DEFENSIVE` last, and only as a trade-**blocking** risk classifier by
+   default — a post-failure short is optional/independently gated, never a
+   mechanism for joining a pump.
+
+This needs its own point-in-time market-cap-rank universe classifier (separate
+from `market_data/universe.py`'s liquidity/tradability filter — this track's
+grouping is market-cap-rank based, reconstructed historically to avoid
+survivorship bias) and L2/order-book data ingestion, which this codebase does not
+have yet (current market data is bookTicker + kline only, no depth stream). Route
+strategy selection by symbol group through something like a `strategy_router`
+keyed on the point-in-time classification, per the doc's example event loop.
+
+Scoring/gating for this track is intentionally stricter and group-weighted
+(Sharpe/drawdown/win-rate-over-breakeven/expectancy/latency-retention composite,
+hard gates on OOS trade count, latency retention >=60%, fee-stress robustness,
+walk-forward fold stability) — see the doc's "Scoring, selection and strategy
+weighting" section before wiring any of these into the same go-live evidence bar
+CAEMS uses; treat it as a separate evidence bar per strategy family, not a shared
+one, since the sample-size/latency requirements differ sharply by asset group.
+
 ## In progress / next up
 
 Was starting **S8 — Active-trade monitoring + lifecycle timeline**
