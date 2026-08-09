@@ -117,8 +117,6 @@ async def test_production_tick_publishes_scanner():
 @pytest.mark.asyncio
 async def test_production_tick_shows_warming_rows_before_indicators_ready():
     registry = SymbolStateRegistry(FrozenParams())
-    # Register symbol with no candle history — indicators not ready.
-    registry.get_or_create("ETHUSDT")
     scanner = ScannerService()
     developing = DevelopingSetupsService()
     tick = ProductionTick(
