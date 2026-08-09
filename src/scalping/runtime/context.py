@@ -12,6 +12,7 @@ from scalping.config.settings import EffectiveConfig
 from scalping.costmodel.cost import compute_round_trip_cost, cost_gate_passed
 from scalping.domain.models import Side
 from scalping.market_data.registry import SymbolState
+from scalping.market_data.staleness import Feed, StalenessWatchdog
 from scalping.risk.kill_switch import KillSwitch
 from scalping.scanner.runner import SymbolEvalContext
 from scalping.scoring.features import FeatureRawInputs
@@ -158,16 +159,26 @@ def build_eval_context(
     btc_ema_fast_1m: float | None = None,
     btc_ema_slow_1m: float | None = None,
     risk_approved: bool = True,
+    staleness: StalenessWatchdog | None = None,
 ) -> SymbolEvalContext | None:
     snapshot = build_snapshot(state, now=evaluated_at, btc_strength=btc_strength)
     if snapshot is None:
         return None
     bt = state.last_book_ticker
+    # A dead feed leaves the last book in place forever. Without this check the
+    # strategy keeps signalling off a frozen price — the scanner still shows a
+    # number, so nothing looks wrong until the fills come back at prices that no
+    # longer existed.
+    stale = (
+        staleness.is_stale(state.symbol, Feed.BOOK_TICKER, evaluated_at)
+        if staleness is not None
+        else False
+    )
     flags = MarketQualityFlags(
         kill_switch_engaged=bool(kill_switch and kill_switch.killed),
         symbol_disabled=config.symbol_meta.disabled,
         shorts_enabled=config.symbol_meta.shorts_enabled,
-        stale_market_data=False,
+        stale_market_data=stale,
         invalid_book=bt is None,
         liquidity_too_low=False,
     )
@@ -185,7 +196,7 @@ def build_eval_context(
                 snapshot=snapshot,
                 config=config,
                 evaluated_at=evaluated_at,
-                stale=False,
+                stale=stale,
                 btc_ema_fast_1m=btc_ema_fast_1m,
                 btc_ema_slow_1m=btc_ema_slow_1m,
             ),
@@ -194,7 +205,7 @@ def build_eval_context(
                 snapshot=snapshot,
                 config=config,
                 evaluated_at=evaluated_at,
-                stale=False,
+                stale=stale,
                 btc_ema_fast_1m=btc_ema_fast_1m,
                 btc_ema_slow_1m=btc_ema_slow_1m,
             ),

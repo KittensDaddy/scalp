@@ -131,6 +131,7 @@ class ProductionTick:
                 btc_ema_fast_1m=btc_fast,
                 btc_ema_slow_1m=btc_slow,
                 risk_approved=True,
+                staleness=self.registry.staleness,
             )
             if ctx is None:
                 continue
