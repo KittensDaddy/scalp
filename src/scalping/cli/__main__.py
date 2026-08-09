@@ -199,7 +199,7 @@ async def _warm_registry(
     bars: int = 280,
     concurrency: int = 2,
 ) -> None:
-    """Seed indicators slowly — 300 symbols × klines will IP-ban if rushed."""
+    """Seed indicators slowly — 300 symbols worth of klines will IP-ban if rushed."""
     end = datetime.now(UTC)
     start = end - timedelta(minutes=bars + 5)
     sem = asyncio.Semaphore(concurrency)

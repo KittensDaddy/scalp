@@ -67,8 +67,10 @@ instrumentation + pre-registered maker/taker decision rule.
   attempts → `entry_attempts`, lifecycle → `trade_events`, score samples →
   `calibration_stats` (`persistence/trades_repo.py`)
 
-Test suite: 427 passed. `uv run pytest -q` and `uv run ruff check src tests` both
-clean. Frontend: `npx tsc -b` clean.
+Test suite: 438 passed. `uv run pytest -q` and `uv run ruff check src tests` both
+clean. Frontend: `npx tsc -b` clean (needs `npm install` first — a bare checkout
+reports missing `node`/`vite/client` type roots, which is a dependency artifact,
+not a type error).
 
 Migrations: through `b2c3d4e5f6a7` (score_snapshots, calibration_stats, presets,
 backtest_jobs, incidents) on top of trade_events / developing_setups / etc.
@@ -82,10 +84,55 @@ yet): `OFI_BTC`, `ETH_LEADLAG`, `ALT_RESIDUAL`, `SWEEP_MID`, `COMPRESS_SMALL`,
 plugin; paper can fill non-CAEMS signals. Sub-second OFI/depth-recovery gates
 remain future work once L2/trade-tape feeds exist.
 
-## Remaining (operational / evidence, not missing modules)
+## Paper-run readiness audit (2026-08-09)
+
+`scalping --run` with `SCALPING_ENVIRONMENT=paper` starts and trades end to end,
+so a campaign can be launched today. But five wiring gaps sit between "it runs"
+and "the run produces the evidence PLAN §8 asks for". Fix 1–2 before treating
+any campaign as the §8 sample; 3–4 before the numbers mean anything.
+
+1. **PaperVenue is not fed by the WS book.** `MarketDataManager` takes only
+   `registry` (`market_data/manager.py:40`); the venue's only book source is the
+   1 Hz REST `book_ticker_all()` poll in `cli/__main__.py:_poll_books`. With
+   `PaperExecutor.entry_ttl_s = 0.05`, a resting GTX order is queried 50 ms after
+   placement against a snapshot that can be a second old, and
+   `_try_fill_resting_orders` needs `ask <= bid` to fill — so **maker entries
+   never fill**. Every paper entry lands as `TAKER_CONVERT` or `ABANDONED`, and
+   the whole campaign carries a taker cost basis.
+2. **Markouts are never computed.** `save_entry_attempt`
+   (`persistence/trades_repo.py:116-119`) hardcodes all four `markout_*` columns
+   to `None`. `accounting/markouts.py` implements the pre-registered decision
+   rule but has no data source, so §8 criterion 6 (maker/taker resolved) cannot
+   be evaluated — independently of gap 1.
+3. **Cooldowns are checked but never set.** `StrategyRunner` gates on
+   `cooldowns.is_active` (`scanner/runner.py:108`); nothing in the runtime ever
+   calls `CooldownManager.set` / `set_api_reconnect_cooldown`, and the
+   `cooldowns` table is not loaded at startup. A symbol can re-enter immediately
+   after a stop-out.
+4. **Drawdown machine is not in the loop.** `DrawdownState` is referenced only by
+   `edge/evidence_bar.py` and tests. Nothing feeds closed-trade R into it during
+   `--run`, so `daily_loss_cap_r=3.0` / `weekly_loss_cap_r=6.0` never halt the
+   campaign and §8 criterion 4 (max DD ≤ 6R) is only measurable after the fact.
+5. **No evidence-bar readout.** `evaluate_evidence_bar` is implemented and tested
+   but has no endpoint or CLI; §8 progress has to be assembled by hand from
+   `/analytics` plus manual counts.
+
+Operational preconditions for the run itself:
+
+- Symbol resolution and warm both go through REST. Banned IP with no proxy →
+  `--run` exits 1 at universe build. Set `SCALPING_HTTP_PROXY`/`_PROXIES`.
+- `_poll_books` swallows failures at `log.debug`. If the batch call is failing,
+  the scanner still shows WS-driven rows while the paper venue silently fills
+  nothing — raise that to `warning` before a long unattended run.
+- `SCALPING_WARM_REGISTRY=false` with no proxy means no REST warm; 5m EMAs need
+  hours of WS bars before rows become tradeable. A proxy auto-enables warm.
+- Defaults at launch: 300-symbol universe, `paper_equity=10_000`,
+  `risk_per_trade_pct=0.15`, `max_positions_total=10`.
+
+## Remaining (operational / evidence)
 
 Code for S1–S12 + L1–L6 + supervisor/CLI + production tick/paper path is in place.
-What remains is runtime evidence and soak:
+Beyond the five gaps above, what remains is runtime evidence and soak:
 
 - **10c paper campaign** to PLAN §8 evidence bar (n≥300 trades, etc.) —
   `SCALPING_CONTROL_TOKEN=… SCALPING_DASHBOARD_UNKILL_TOKEN=… scalping --run`
