@@ -62,8 +62,8 @@ class RiskConfig(BaseModel):
 
     daily_loss_cap_r: float = 3.0
     weekly_loss_cap_r: float = 6.0
-    max_positions_total: int = 3
-    max_positions_in_class: int = 1
+    max_positions_total: int = 10
+    max_positions_in_class: int = 3
     max_positions_per_correlation_group: int = 99  # permissive default; tighten per group
 
     risk_per_trade_multiplier: float = 1.0  # overlay hook (e.g. high_funding: 0.75)
@@ -152,7 +152,32 @@ class Settings(BaseSettings):
     dashboard_port: int = 8000
     dashboard_cors_origin: str = "http://localhost:5173"
 
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    calibration_min_samples: int = 30
+    paper_min_trades_for_live: int = 50
+    # "auto" = liquid USDT-perp universe from Binance (see market_data/universe.py).
+    # Or a comma list, e.g. "BTCUSDT,ETHUSDT".
+    run_symbols: str = "auto"
+    universe_max_symbols: int = 150
+    # How often to rebuild the liquid watchlist when run_symbols=auto.
+    # Scanner score still re-ranks every tick inside that watchlist.
+    universe_refresh_hours: float = 4.0
+    paper_equity: float = 10_000.0
+    # Empty → DOCS/caems_presets.yaml (repo root). Per-pair class routing for --run.
+    presets_path: str = ""
+    # Comma list of strategy_ids. Empty → caems_v2 + ALT_RESIDUAL + microstructure stubs.
+    enabled_strategies: str = ""
+
     defaults: EffectiveConfig = Field(default_factory=EffectiveConfig)
+
+    def use_universe(self) -> bool:
+        return self.run_symbols.strip().lower() in {"auto", "universe", "*"}
+
+    def symbols_list(self) -> list[str]:
+        if self.use_universe():
+            return []
+        return [s.strip().upper() for s in self.run_symbols.split(",") if s.strip()]
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "Settings(<redacted>)"

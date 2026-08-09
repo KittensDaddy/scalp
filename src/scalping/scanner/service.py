@@ -20,6 +20,8 @@ class ScannerRow:
     accepted: bool
     rejection_reason: RejectionReason | None
     breakdown: ScoreBreakdown | None
+    strategy: str = "caems_v2"
+    preset: str | None = None
 
 
 @dataclass(frozen=True)

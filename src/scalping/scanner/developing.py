@@ -2,9 +2,9 @@
 (score within Δ of threshold), missing-condition list, conditional projections".
 
 A developing setup is a rejected symbol/side whose score is close enough to the
-actionable threshold to be worth watching. `detect_developing_setup` is pure (no
-network, no wall-clock reads inside — timestamp passed in) so it replays
-deterministically, matching the S3 scoring module's contract.
+actionable threshold to be worth watching — or which already passes most CAEMS
+gates with only a few missing. `detect_developing_setup` is pure (timestamp
+passed in) so it replays deterministically.
 """
 
 from __future__ import annotations
@@ -18,9 +18,13 @@ from scalping.strategies.caems.diagnostics import ConditionCheck
 
 @dataclass(frozen=True)
 class NearTriggerConfig:
-    score_threshold: float = 70.0
-    score_delta: float = 20.0
-    max_missing_conditions: int = 3
+    score_threshold: float = 55.0
+    score_delta: float = 15.0  # score path: >= 40 with defaults
+    max_missing_conditions: int = 5
+    # Alternate path: enough gates already green even if score is still low.
+    min_passed_conditions: int = 5
+    # Hard floor: Developing tab only lists setups scoring at least this.
+    min_score: float = 40.0
 
 
 @dataclass(frozen=True)
@@ -43,17 +47,23 @@ def detect_developing_setup(
     config: NearTriggerConfig,
     evaluated_at: datetime,
 ) -> DevelopingSetup | None:
-    """Returns a DevelopingSetup when a rejected row's score is within `score_delta`
-    of `score_threshold` and few enough conditions remain unmet, else None. Accepted
-    rows are never "developing" — they've already triggered.
+    """Returns a DevelopingSetup when a rejected row is near actionable.
+
+    Accepted rows are never "developing" — they've already triggered.
     """
     if accepted:
         return None
-    if score < config.score_threshold - config.score_delta:
+    if score < config.min_score:
         return None
 
     failing = [c for c in conditions if not c.passed]
     if not failing or len(failing) > config.max_missing_conditions:
+        return None
+
+    passed_n = sum(1 for c in conditions if c.passed)
+    score_ok = score >= (config.score_threshold - config.score_delta)
+    gates_ok = passed_n >= config.min_passed_conditions
+    if not (score_ok or gates_ok):
         return None
 
     return DevelopingSetup(
@@ -71,8 +81,7 @@ def detect_developing_setups(
     config: NearTriggerConfig,
     evaluated_at: datetime,
 ) -> list[DevelopingSetup]:
-    """Batch form of `detect_developing_setup` over (symbol, side, score, accepted,
-    conditions) tuples, ranked by score descending."""
+    """Batch form; one setup per symbol (best score), ranked descending."""
     setups = [
         setup
         for symbol, side, score, accepted, conditions in candidates
@@ -84,7 +93,12 @@ def detect_developing_setups(
         )
         is not None
     ]
-    return sorted(setups, key=lambda s: s.score, reverse=True)
+    best: dict[str, DevelopingSetup] = {}
+    for s in setups:
+        prev = best.get(s.symbol)
+        if prev is None or s.score > prev.score:
+            best[s.symbol] = s
+    return sorted(best.values(), key=lambda s: s.score, reverse=True)
 
 
 @dataclass(frozen=True)

@@ -188,6 +188,43 @@ body {
 .detail-pane {
   background: var(--bg);
   overflow-y: auto;
+  min-height: 0;
+}
+
+.chart-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Keep tabs/toolbars fixed; only the table body scrolls (live WS updates
+   were resetting scrollTop on the whole pane). */
+.scanner-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.scanner-pane > .pane-tabs,
+.scanner-pane > .pane-toolbar {
+  flex-shrink: 0;
+}
+
+.scanner-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.scanner-pane > .analytics-panel,
+.scanner-pane > .lab-panel,
+.scanner-pane > .active-trades,
+.scanner-pane > .scanner-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* -- pane tabs -- */
@@ -219,7 +256,9 @@ body {
 /* -- scanner table -- */
 
 .scanner-table-wrap {
-  overflow-x: auto;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .scanner-table {
@@ -278,20 +317,39 @@ body {
 /* -- chart pane -- */
 
 .tv-panel {
-  height: 100%;
-  min-height: 300px;
-}
-
-.tv-panel iframe {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   height: 100%;
-  border: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.tv-chart-host {
+  flex: 1;
+  min-height: 280px;
+  width: 100%;
+  position: relative;
 }
 
 .tv-empty {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.tv-chart-status {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 2;
+  padding: 4px 8px;
+  background: rgba(11, 14, 20, 0.85);
+  font-family: var(--mono);
+  font-size: 11px;
+  pointer-events: none;
 }
 
 /* -- symbol detail -- */
@@ -391,6 +449,277 @@ body {
   color: var(--amber);
   padding-left: 18px;
   margin: 0;
+}
+
+/* -- active trades -- */
+
+.active-trades {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.active-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 24px 8px;
+  font-family: var(--mono);
+}
+
+.active-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.active-card {
+  text-align: left;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 10px 12px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.active-card:hover {
+  background: var(--bg-elevated);
+}
+
+.active-card-selected {
+  border-color: var(--accent);
+  background: #16233a;
+}
+
+.active-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.active-sym {
+  font-weight: 700;
+}
+
+.active-r {
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.r-pos {
+  color: var(--green);
+}
+
+.r-neg {
+  color: var(--red);
+}
+
+.active-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.health-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.health-healthy {
+  background: #123a2a;
+  color: var(--green);
+}
+
+.health-at-risk {
+  background: #3a2a12;
+  color: var(--amber);
+}
+
+.health-near-stop {
+  background: #3a1420;
+  color: var(--red);
+}
+
+.health-near-tp {
+  background: #12303a;
+  color: var(--accent);
+}
+
+.flag-ok {
+  color: var(--green);
+}
+
+.flag-warn {
+  color: var(--amber);
+}
+
+.timeline h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.timeline-list li {
+  display: grid;
+  grid-template-columns: 120px 72px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.timeline-type {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.timeline-ts {
+  color: var(--text-muted);
+}
+
+.timeline-detail {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-bar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.active-bar-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.active-bar-chip:hover {
+  border-color: var(--accent);
+}
+
+.pane-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.pin-btn {
+  background: none;
+  border: none;
+  color: var(--amber);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.row-alert {
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+
+.analytics-panel,
+.lab-panel {
+  padding: 8px;
+}
+
+.lab-banner {
+  background: #3a2a12;
+  color: var(--amber);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.lab-columns {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 12px;
+}
+
+.lab-preset-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lab-preset-list button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.lab-preset-list button.tab-active {
+  background: #16233a;
+  color: var(--accent);
+}
+
+.lab-panel h3,
+.analytics-panel h3 {
+  margin: 12px 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.lab-backtest {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 280px;
+}
+
+.lab-bt-status {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lab-error {
+  color: var(--red);
+  font-size: 12px;
 }
 
 /* -- mobile -- */

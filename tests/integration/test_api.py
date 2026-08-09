@@ -85,7 +85,9 @@ async def test_rejections_endpoint(app_and_engine):
 async def test_empty_placeholder_endpoints_return_correct_shape(app_and_engine):
     app, _ = app_and_engine
     async with await _client(app) as client:
-        assert (await client.get("/api/v1/positions")).json() == []
+        positions = (await client.get("/api/v1/positions")).json()
+        assert positions["seq"] == 0
+        assert positions["positions"] == []
         assert (await client.get("/api/v1/orders")).json() == []
         assert (await client.get("/api/v1/fills")).json() == []
         risk = (await client.get("/api/v1/risk")).json()

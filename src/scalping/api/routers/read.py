@@ -1,10 +1,9 @@
 """Read-only endpoints under /api/v1 — SCANNER_DASHBOARD_PLAN.md §I / PLAN §6a.
 
 Backed by real persisted data (signals, rejections, trades, meta) for P10 scope.
-`/account`, `/positions`, `/orders`, `/fills`, `/equity`, `/risk` are listed in
-PLAN §6a but their backing tables (live positions/orders/fills, running equity)
-are populated by the trading loop, which is not wired up yet at this phase — they
-return the correct shape with empty/zero data rather than fabricating numbers.
+`/account`, `/orders`, `/fills`, `/equity` still await the trading-loop wiring and
+return empty/null shapes. `/positions` moved to `routers/positions.py` (S8).
+`/risk.open_positions` is live off `ActiveTradeService`.
 """
 
 from __future__ import annotations
@@ -53,8 +52,11 @@ async def list_trades(session: AsyncSession = Depends(get_session), limit: int =
     return [
         {
             "trade_id": r.trade_id, "symbol": r.symbol, "side": r.side,
+            "strategy_version": r.strategy_version,
             "r_multiple": r.r_multiple, "exit_reason": r.exit_reason,
             "opened_at": r.opened_at.isoformat(), "closed_at": r.closed_at.isoformat(),
+            "mae": r.mae, "mfe": r.mfe, "score_at_exit": r.score_at_exit,
+            "cost_breakdown": r.cost_breakdown,
         }
         for r in rows
     ]
@@ -74,11 +76,6 @@ async def account():
     return {"equity": None, "note": "populated once the trading loop is wired to this API"}
 
 
-@router.get("/positions")
-async def positions():
-    return []
-
-
 @router.get("/orders")
 async def orders():
     return []
@@ -95,5 +92,43 @@ async def equity():
 
 
 @router.get("/risk")
-async def risk():
-    return {"daily_r": None, "weekly_r": None, "open_positions": 0}
+async def risk(state: AppState = Depends(get_state)):
+    open_n = len(state.active_trades.snapshot().positions)
+    return {"daily_r": None, "weekly_r": None, "open_positions": open_n}
+
+
+@router.get("/candles/{symbol}")
+async def candles(
+    symbol: str,
+    state: AppState = Depends(get_state),
+    interval: str = "1m",
+    limit: int = 300,
+):
+    """Public kline proxy for the dashboard chart (avoids browser CORS on Binance)."""
+    from scalping.exchanges.base.rate_limiter import RateLimiter
+    from scalping.exchanges.binance.rest import BinanceRestClient
+
+    limit = max(1, min(limit, 1000))
+    allowed = {"1m", "3m", "5m", "15m", "1h"}
+    if interval not in allowed:
+        interval = "1m"
+    rest = BinanceRestClient(
+        base_url=state.settings.binance_rest_base,
+        api_key=state.settings.binance_api_key,
+        api_secret=state.settings.binance_api_secret,
+        rate_limiter=RateLimiter(),
+    )
+    try:
+        raw = await rest.klines(symbol=symbol.upper(), interval=interval, limit=limit)
+    finally:
+        await rest.aclose()
+    return [
+        {
+            "time": int(r[0]) // 1000,
+            "open": float(r[1]),
+            "high": float(r[2]),
+            "low": float(r[3]),
+            "close": float(r[4]),
+        }
+        for r in raw
+    ]

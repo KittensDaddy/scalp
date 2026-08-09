@@ -99,6 +99,15 @@ def test_per_symbol_override_wins_over_everything():
     assert effective.gates.spread_max_bps == 0.5
 
 
+def test_docs_presets_retain_routing_meta():
+    presets = load_presets_yaml(DOCS_PRESETS)
+    assert presets["btc"].symbols_match == ["BTCUSDT"]
+    assert presets["major_alt"].universe_rule.get("quote_volume_rank_max") == 15
+    assert presets["new_listing"].observe_only is True
+    assert presets["low_liquidity"].disabled is True
+    assert presets["low_liquidity"].observe_only is True
+
+
 def test_all_docs_presets_resolve_without_error():
     """Every non-disabled class preset in the real yaml must resolve cleanly against
     defaults, proving the schema actually matches EffectiveConfig's fields."""

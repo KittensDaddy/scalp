@@ -1,21 +1,36 @@
-"""Strategy plugin protocol.
-
-SCANNER_DASHBOARD_PLAN.md §A: "CAEMS strategy — First Strategy.evaluate() plugin;
-wrap, don't modify rules." This protocol is the seam the scanner's StrategyRunner
-(phase S4) will call through; CAEMS (P3) is the only implementation for now.
-"""
+"""Strategy plugin protocol for multi-strategy evaluation."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from scalping.domain.models import StrategyEvaluation
+from scalping.config.frozen import FrozenParams
+from scalping.config.settings import EffectiveConfig
+from scalping.domain.models import Side, SignalCandidate, StrategyEvaluation
+from scalping.market_data.registry import SymbolState
+from scalping.strategies.caems.engine import MarketQualityFlags, MarketSnapshot, RiskCostDecision
 
 
-class Strategy(Protocol):
+class StrategyPlugin(Protocol):
+    strategy_id: str
     strategy_version: str
 
-    def evaluate(self, *args: object, **kwargs: object) -> StrategyEvaluation:
-        """Implementations define their own typed inputs; this Protocol exists so
-        the runner can type-check `strategy_version` and the common return type."""
+    def accepts_class(self, symbol_class: str) -> bool:
+        """Whether this plugin should evaluate symbols of this CAEMS class."""
         ...
+
+    def evaluate(
+        self,
+        *,
+        side: Side,
+        snapshot: MarketSnapshot,
+        state: SymbolState,
+        config: EffectiveConfig,
+        frozen: FrozenParams,
+        config_hash: str,
+        evaluated_at: object,
+        flags: MarketQualityFlags,
+        risk_cost: RiskCostDecision,
+        symbol_class: str,
+        btc_snapshot: MarketSnapshot | None = None,
+    ) -> tuple[StrategyEvaluation, SignalCandidate | None]: ...

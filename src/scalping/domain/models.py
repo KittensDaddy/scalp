@@ -77,6 +77,8 @@ class RejectionReason(StrEnum):
     LIQUIDITY_TOO_LOW = "LIQUIDITY_TOO_LOW"
     KILL_SWITCH = "KILL_SWITCH"
     SHORTS_DISABLED = "SHORTS_DISABLED"
+    DATA_UNAVAILABLE = "DATA_UNAVAILABLE"
+    OBSERVE_ONLY = "OBSERVE_ONLY"
 
 
 class StrategyEvaluation(BaseModel):
@@ -200,6 +202,39 @@ class Trade(BaseModel):
     config_hash: str
     mae: float | None = None
     mfe: float | None = None
+
+
+class TradeEventType(StrEnum):
+    """Lifecycle timeline events for active-trade monitoring (S8)."""
+
+    OPENED = "OPENED"
+    PROTECTED = "PROTECTED"
+    BREAKEVEN_MOVED = "BREAKEVEN_MOVED"
+    SCORE_CHANGED = "SCORE_CHANGED"
+    CLOSED = "CLOSED"
+
+
+class HealthLabel(StrEnum):
+    """Qualitative trade health from stop/TP geometry only.
+
+    Percentages and win-probabilities are forbidden until S10 calibration —
+    enforced in `monitoring.active_trades` serializers, not just the UI.
+    """
+
+    HEALTHY = "HEALTHY"
+    AT_RISK = "AT_RISK"
+    NEAR_STOP = "NEAR_STOP"
+    NEAR_TP = "NEAR_TP"
+
+
+class TradeEvent(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    trade_id: str
+    symbol: str
+    event_type: TradeEventType
+    ts: datetime
+    payload: dict = {}
 
 
 class RiskDecision(BaseModel):

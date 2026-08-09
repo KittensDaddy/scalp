@@ -1,4 +1,12 @@
-import type { DevelopingSnapshot, HealthInfo, MetaInfo, ScannerSnapshot, SymbolDetail } from "./types";
+import type {
+  DevelopingSnapshot,
+  HealthInfo,
+  MetaInfo,
+  PositionsSnapshot,
+  ScannerSnapshot,
+  SymbolDetail,
+  TradeEventsResponse,
+} from "./types";
 
 export const API_BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://127.0.0.1:8000";
@@ -31,6 +39,16 @@ export function fetchMeta(): Promise<MetaInfo> {
 
 export function fetchDeveloping(): Promise<DevelopingSnapshot> {
   return getJson<DevelopingSnapshot>("/api/v1/developing");
+}
+
+export function fetchPositions(): Promise<PositionsSnapshot> {
+  return getJson<PositionsSnapshot>("/api/v1/positions");
+}
+
+export function fetchPositionEvents(tradeId: string): Promise<TradeEventsResponse> {
+  return getJson<TradeEventsResponse>(
+    `/api/v1/positions/${encodeURIComponent(tradeId)}/events`,
+  );
 }
 
 export interface ControlResult {

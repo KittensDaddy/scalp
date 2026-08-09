@@ -44,7 +44,8 @@ def serialize_scanner_row(
         "symbol": row.symbol,
         "side": row.side.value,
         "score": row.score,
-        "strategy": "caems_v2",
+        "strategy": row.strategy,
+        "preset": row.preset,
         "price": price,
         "spread_bps": spread_bps,
         "vol_24h": None,
@@ -114,21 +115,6 @@ async def stream_scanner(websocket: WebSocket):
         pass
     finally:
         state.broadcaster.unsubscribe("scanner", queue)
-
-
-@router.websocket("/stream/positions")
-async def stream_positions(websocket: WebSocket):
-    await websocket.accept()
-    state: AppState = websocket.app.state.scalping
-    queue = state.broadcaster.subscribe("positions")
-    try:
-        while True:
-            msg = await queue.get()
-            await websocket.send_json(msg)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        state.broadcaster.unsubscribe("positions", queue)
 
 
 @router.websocket("/stream/system")

@@ -18,116 +18,83 @@ breakeven move, paper venue, event replay, FastAPI dashboard v1 (read endpoints 
 control endpoints + CORS lock), CAEMS A/B validation harness, entry-attempt/markout
 instrumentation + pre-registered maker/taker decision rule.
 
-**Scanner/dashboard track — S1 through S7 (SCANNER_DASHBOARD_PLAN.md phases):**
-- S1 — symbol universe builder (`market_data/universe.py`)
-- S2 — MarketDataManager: sharding, 1m→3m/5m/15m aggregation, SymbolStateRegistry,
-  latency tracking (`market_data/`)
-- S3 — Setup Score: pure `scoring/score.py` + `scoring/features.py`
-- S4 — StrategyRunner + ScannerService, cooldowns, exposure/correlation caps
-- S5 — Scanner REST + WS API (`api/routers/scanner.py`)
-- S6 — React/TS/Vite/Zustand/TanStack-Table-v8 frontend, TradingView embed,
-  asymmetric kill-switch UI — **verified live in a real browser** (scanner table,
-  chart, score breakdown, rejection reasons, full kill/un-kill flow)
-- S7 — Developing Setups engine: non-short-circuiting CAEMS condition evaluator
-  (`strategies/caems/diagnostics.py`), near-trigger detection (`scanner/developing.py`),
-  `developing_setups` persistence, `/api/v1/developing` + `/stream/developing`,
-  frontend "Developing" tab — **verified live in a real browser**
+**Scanner/dashboard track — S1 through S12:**
+- S1 — symbol universe builder
+- S2 — MarketDataManager + SymbolStateRegistry
+- S3 — Setup Score
+- S4 — StrategyRunner + ScannerService, cooldowns, exposure caps
+- S5 — Scanner REST + WS API
+- S6 — React scanner + TradingView + kill-switch UI
+- S7 — Developing Setups engine + tab
+- S8 — Active-trade monitoring + lifecycle timeline (`ActiveTradeService`,
+  `trade_events`, HealthLabel-only, probability fields rejected in code)
+- S9 — Journal enrichment + analytics (`accounting/journal.py`, `GET /analytics`,
+  enriched `/trades`, Analytics tab)
+- S10 — Calibration (Wilson CI, min-sample gating, `calibration_stats`,
+  `GET /calibration` — probabilities only when n≥min)
+- S11 — Notifications + QOL (Telegram adapter + `AlertEngine`, hotkeys j/k,
+  pinned rows, column presets, alert threshold in localStorage)
+- S12 — Replay-driven UI feed (`replay/ui_feed.py`) — byte-identical frames
+  across identical replays
 
-All verification demo scripts were scratch files (`/tmp/run_dashboard*.py`) and are
-NOT part of the repo — they seeded fake data to drive the UI for a human-observable
-check, then were torn down. To re-run a similar check, write a small script that
-calls `create_app()` with a seeded `ScannerService`/`DevelopingSetupsService`.
+**Strategy Lab — L1 through L6:**
+- L1 — presets table + `resolve_with_provenance` + frozen-key / tighten-only validation
+- L2/L3 — Strategy Lab UI (presets list, provenance, calibration panel) + versioning
+  + paper activation API
+- L4 — `BacktestJobRunner` (sanity banner permanent, refused in LIVE by default)
+- L5 — compare mode (`POST /backtests/compare`)
+- L6 — live activation gated server-side (completed backtest + paper min + confirm)
 
-Test suite: 359 passed. `uv run pytest -q` and `uv run ruff check src tests` both
-clean as of this commit. Frontend: `npx tsc -b && npm run build` clean.
+**Runtime:**
+- `TraderSupervisor` (`runtime/supervisor.py`) — eval + heartbeat loops, kill-switch
+  aware, broadcaster heartbeats
+- `ProductionTick` (`runtime/tick.py`) + context builder — StrategyRunner →
+  scanner/developing publish + active-trade marks; per-symbol CAEMS class presets
+  via `SymbolClassResolver` (`config/class_resolver.py` + `DOCS/caems_presets.yaml`)
+- Multi-plugin `StrategyRunner` — `caems_v2` + live `ALT_RESIDUAL` + microstructure
+  stubs (`OFI_BTC`, …) that reject `DATA_UNAVAILABLE` until L2 feed exists
+- `PaperExecutor` (`runtime/paper_executor.py`) — entry_flow + protection on
+  `PaperVenue`, ActiveTradeService cards, per-symbol EffectiveConfig sizing
+- CLI: `scalping --dashboard` (API + Lab candle loader) and `scalping --run`
+  (warm registry from REST, WS market data, production tick, paper execution when
+  `SCALPING_ENVIRONMENT=paper`, dashboard API on the same process). Default
+  `SCALPING_RUN_SYMBOLS=auto` builds the liquid USDT-perp universe (capped by
+  `SCALPING_UNIVERSE_MAX_SYMBOLS`, default 150). Optional
+  `SCALPING_PRESETS_PATH`, `SCALPING_ENABLED_STRATEGIES`.
+- Lab: `POST /api/v1/backtests` enqueues candle jobs via injectable candle loader;
+  Strategy Lab UI can start a 3d BTCUSDT sanity run
+- Journal persistence: closed paper trades → `trades` (+ auto-notes), entry
+  attempts → `entry_attempts`, lifecycle → `trade_events`, score samples →
+  `calibration_stats` (`persistence/trades_repo.py`)
 
-## New strategy track added (not yet implemented)
+Test suite: 427 passed. `uv run pytest -q` and `uv run ruff check src tests` both
+clean. Frontend: `npx tsc -b` clean.
 
-`DOCS/strategy-microstructure-multiasset.md` — a second, deliberately separate
-strategy family covering 8 asset-group-specific microstructure strategies
-(`OFI_BTC`, `ETH_LEADLAG`, `ALT_RESIDUAL`, `SWEEP_MID`, `COMPRESS_SMALL`,
-`LISTING_OR`, `VSHOCK`, `PUMP_DEFENSIVE`). This is explicitly **not** a CAEMS
-variant — CAEMS is 1m/5m EMA-momentum; this track is order-flow-imbalance/
-microprice/relative-value/liquidity-sweep/volatility-regime/event-detection based,
-operating on second-level to sub-second horizons for BTC/ETH down through minutes
-for large/mid/small caps.
+Migrations: through `b2c3d4e5f6a7` (score_snapshots, calibration_stats, presets,
+backtest_jobs, incidents) on top of trade_events / developing_setups / etc.
 
-Nothing in this track has code yet. Per the doc's own recommended build order:
-1. Keep CAEMS as its own untouched benchmark strategy (already true — `caems/`
-   package is independent of anything this track would add).
-2. Build a shared event/L2 replay + execution simulator (queue-aware maker fills,
-   latency-injected taker fills, nonlinear impact model) — this is new
-   infrastructure, distinct from the existing candle-only `backtest/` module and
-   the tick-level `paper/venue.py`, which don't model order-book depth/queue
-   position at all.
-3. Implement `OFI_BTC` and `ALT_RESIDUAL` first (best research conditions).
-4. Then `ETH_LEADLAG` and `SWEEP_MID`.
-5. Only then `COMPRESS_SMALL`, `LISTING_OR`, `VSHOCK` (thinner liquidity, harder
-   to backtest honestly).
-6. `PUMP_DEFENSIVE` last, and only as a trade-**blocking** risk classifier by
-   default — a post-failure short is optional/independently gated, never a
-   mechanism for joining a pump.
+## Microstructure track (live v1 proxies)
 
-This needs its own point-in-time market-cap-rank universe classifier (separate
-from `market_data/universe.py`'s liquidity/tradability filter — this track's
-grouping is market-cap-rank based, reconstructed historically to avoid
-survivorship bias) and L2/order-book data ingestion, which this codebase does not
-have yet (current market data is bookTicker + kline only, no depth stream). Route
-strategy selection by symbol group through something like a `strategy_router`
-keyed on the point-in-time classification, per the doc's example event loop.
+`DOCS/strategy-microstructure-multiasset.md` — all 8 strategy IDs evaluate in
+`--run` with best-effort proxies from `bookTicker` + 1m candles (no full L2/CVD
+yet): `OFI_BTC`, `ETH_LEADLAG`, `ALT_RESIDUAL`, `SWEEP_MID`, `COMPRESS_SMALL`,
+`LISTING_OR`, `VSHOCK`, `PUMP_DEFENSIVE`. Scanner STRAT column shows the winning
+plugin; paper can fill non-CAEMS signals. Sub-second OFI/depth-recovery gates
+remain future work once L2/trade-tape feeds exist.
 
-Scoring/gating for this track is intentionally stricter and group-weighted
-(Sharpe/drawdown/win-rate-over-breakeven/expectancy/latency-retention composite,
-hard gates on OOS trade count, latency retention >=60%, fee-stress robustness,
-walk-forward fold stability) — see the doc's "Scoring, selection and strategy
-weighting" section before wiring any of these into the same go-live evidence bar
-CAEMS uses; treat it as a separate evidence bar per strategy family, not a shared
-one, since the sample-size/latency requirements differ sharply by asset group.
+## Remaining (operational / evidence, not missing modules)
 
-## In progress / next up
+Code for S1–S12 + L1–L6 + supervisor/CLI + production tick/paper path is in place.
+What remains is runtime evidence and soak:
 
-Was starting **S8 — Active-trade monitoring + lifecycle timeline**
-(SCANNER_DASHBOARD_PLAN.md phase 8) when this session ran out of budget. Nothing
-written yet for S8 — planning only. Design notes from that planning pass:
-
-- Reuse `domain.models.Position`/`Trade`/`Fill` (already exist, from P7/P8).
-- New `TradeEvent` domain model + `trade_events` persistence table: event_type
-  (OPENED, PROTECTED, BREAKEVEN_MOVED, SCORE_CHANGED, CLOSED, ...), trade_id/symbol,
-  ts, payload JSON. `Position` already tracks `protected`/`breakeven_moved` flags to
-  drive some of these.
-- Pure MAE/MFE update function: `update_mae_mfe(position, price) -> (mae, mfe)` —
-  keep it side-effect-free like everything else in this codebase.
-- **Hard constraint (spec, not a suggestion): qualitative health labels only —
-  percentages/probabilities are forbidden pre-calibration (S10), and this must be
-  enforced in code, not just the UI layer.** E.g. a `HealthLabel` enum
-  (HEALTHY / AT_RISK / NEAR_STOP / NEAR_TP or similar) derived from deterministic
-  geometry (distance-to-stop/TP as a fraction of R) — never a numeric win-probability.
-  Distance/R-multiple numbers themselves are fine; a % chance-of-anything is not.
-- `ActiveTradeService` mirroring `ScannerService`/`DevelopingSetupsService`'s
-  seq-numbered publish/snapshot shape, feeding the **already-existing**
-  `/api/v1/stream/positions` WS route (`api/routers/scanner.py` — currently just
-  accepts connections and forwards the broadcaster's "positions" channel; nothing
-  publishes to it yet) and a new/extended `GET /api/v1/positions` (currently a stub
-  returning `[]` in `api/routers/read.py`).
-- Acceptance per the plan: "full timeline reproduced for a paper trade end-to-end" —
-  will need either a paper-trading integration test driving a position through its
-  full lifecycle, or a replay-driven one.
-
-After S8, remaining phases in order (none started):
-- S9 — journal enrichment + analytics (MAE/MFE, score-at-exit, cost breakdown,
-  auto-notes, analytics grouped by strategy/symbol/side/TF/bucket/regime/hour/session)
-- S10 — probability calibration (Wilson CI, min-sample gating, per-symbol vs pooled
-  expectancy testing) — this is what unblocks percentages/probabilities anywhere in
-  the UI
-- S11 — notifications (Telegram) + QOL (hotkeys, pinned rows, column presets, alerts)
-- S12 — replay-driven UI validation (zero look-ahead, UI indistinguishable from live)
-- L1-L6 — Strategy Lab track (presets table + resolution engine + provenance,
-  Strategy Lab UI, backtest job runner, compare mode/A-B workflow, live activation)
-- Also still outstanding regardless of track: the actual `scalping --run` trading-loop
-  supervisor wiring P1-P10's pieces into a continuously-running process. Nothing in
-  S1-S7 required it because everything is tested via dependency-injected
-  fakes/mocks — but S8's "real" position data and any live paper-campaign evidence
-  (PLAN_OF_ACTION.md §8, n≥300 trades) need it to mean anything.
+- **10c paper campaign** to PLAN §8 evidence bar (n≥300 trades, etc.) —
+  `SCALPING_CONTROL_TOKEN=… SCALPING_DASHBOARD_UNKILL_TOKEN=… scalping --run`
+  with `SCALPING_ENVIRONMENT=paper`. Closed trades, entry attempts, trade events,
+  and calibration samples now persist automatically into the DB.
+- **S13 testnet soak** ≥1 week (ops), reconciliation across forced restarts.
+- **S14 tiny-capital live** — only after evidence bar; max 1–2 positions, human
+  review of first N trades.
+- Finish microstructure strategies once L2/CVD feeds exist; seed Lab presets from YAML.
 
 ## Conventions established (follow these)
 
@@ -139,16 +106,13 @@ After S8, remaining phases in order (none started):
   `diagnostics.py`) vs. the short-circuiting cascade used for actual decisions
   (`caems/engine.py`).
 - Every new service with a live/WS view gets a seq-numbered snapshot/publish/delta
-  shape (`ScannerService`, `DevelopingSetupsService`) so the frontend can reuse the
-  same seq-gap-resnapshot client pattern.
+  shape (`ScannerService`, `DevelopingSetupsService`, `ActiveTradeService`).
 - Never fabricate data for fields the pipeline doesn't populate yet — return `null`/
-  empty with a comment explaining what wires it up later (see `read.py`, `scanner.py`
-  serializers).
-- TanStack Table must stay pinned to `^8` — `npm install @tanstack/react-table` alone
-  pulls in a v9 pre-release with an incompatible API.
-- Alembic needs `data/` to exist before `alembic revision --autogenerate` or
-  `alembic upgrade head` will run (SQLite file target) — `mkdir -p data` first, and
-  `rm -rf data` afterward (it's gitignored and not meant to persist).
-- After any live-browser verification pass, kill the demo processes by exact PID
-  (`pgrep -af "run_dashboard\|vite"`) — `pkill` substring matches can hit multiple
-  demo scripts at once and leave orphans.
+  empty with a comment explaining what wires it up later.
+- Probabilities only from calibration store with min-sample gating (S10); S8 health
+  labels remain geometry-only.
+- Candle backtests always carry the sanity-only banner; they gate Lab activation but
+  never substitute for the paper evidence bar.
+- TanStack Table must stay pinned to `^8`.
+- Alembic needs `data/` to exist before migrate (`mkdir -p data`).
+- After any live-browser verification pass, kill demo processes by exact PID.

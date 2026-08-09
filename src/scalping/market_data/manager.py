@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from scalping.domain.models import BookTicker, Candle
 from scalping.exchanges.binance.shapes import check_book_ticker_shape, check_kline_shape
 from scalping.exchanges.binance.ws import BinanceWSConnection, StreamCategory
+from scalping.market_data.aggregation import StreamingAggregator
 from scalping.market_data.klines import ContiguityTracker, Gap
 from scalping.market_data.latency import LatencyTracker
 from scalping.market_data.registry import SymbolStateRegistry
@@ -35,6 +36,7 @@ ShardFactory = Callable[..., BinanceWSConnection]
 class KlineHandleResult:
     candle: Candle | None
     gap: Gap | None
+    candle_5m: Candle | None = None
 
 
 class MarketDataManager:
@@ -46,6 +48,7 @@ class MarketDataManager:
         contiguity: ContiguityTracker | None = None,
         max_streams_per_shard: int = 200,
         shard_factory: ShardFactory = BinanceWSConnection,
+        aggregate_5m: bool = True,
     ) -> None:
         self.ws_base = ws_base
         self.registry = registry
@@ -56,6 +59,8 @@ class MarketDataManager:
         self.latency = LatencyTracker()
         self._shard_factory = shard_factory
         self._connections: dict[tuple[str, int], BinanceWSConnection] = {}
+        self.aggregate_5m = aggregate_5m
+        self._agg_5m: dict[str, StreamingAggregator] = {}
 
     # -- shard planning ------------------------------------------------------------
 
@@ -100,9 +105,15 @@ class MarketDataManager:
         )
         gap = self.contiguity.observe(symbol, candle.open_time)
         self.registry.on_kline_1m_closed(candle)
+        candle_5m = None
+        if self.aggregate_5m:
+            agg = self._agg_5m.setdefault(symbol, StreamingAggregator("5m"))
+            candle_5m = agg.on_1m_candle(candle)
+            if candle_5m is not None:
+                self.registry.on_kline_5m_closed(candle_5m)
         exchange_ts = _event_time_from_msg(msg, fallback=received_at)
         self.latency.record("kline_1m", exchange_ts=exchange_ts, local_ts=received_at)
-        return KlineHandleResult(candle=candle, gap=gap)
+        return KlineHandleResult(candle=candle, gap=gap, candle_5m=candle_5m)
 
     # -- connection lifecycle (thin; not exercised by unit tests) -------------------
 

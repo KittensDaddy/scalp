@@ -67,21 +67,21 @@ def _context(symbol="BTCUSDT") -> SymbolEvalContext:
 
 def test_run_once_publishes_one_row_per_symbol():
     runner = StrategyRunner()
-    delta = runner.run_once(
+    result = runner.run_once(
         [_context("BTCUSDT")], config=EffectiveConfig(), frozen=FrozenParams(),
         config_hash="h", evaluated_at=NOW,
     )
-    assert len(delta.upserts) == 1
-    assert delta.upserts[0].symbol == "BTCUSDT"
+    assert len(result.delta.upserts) == 1
+    assert result.delta.upserts[0].symbol == "BTCUSDT"
 
 
 def test_run_once_accepted_row_has_score_and_breakdown():
     runner = StrategyRunner()
-    delta = runner.run_once(
+    result = runner.run_once(
         [_context("BTCUSDT")], config=EffectiveConfig(), frozen=FrozenParams(),
         config_hash="h", evaluated_at=NOW,
     )
-    row = delta.upserts[0]
+    row = result.delta.upserts[0]
     assert row.accepted is True
     assert row.side == Side.LONG  # baseline snapshot favors LONG
     assert row.breakdown is not None
@@ -92,22 +92,22 @@ def test_run_once_respects_cooldown():
     cooldowns = CooldownManager()
     cooldowns.set("symbol", "BTCUSDT", "RISK_LIMIT", NOW.replace(hour=13))
     runner = StrategyRunner(cooldowns=cooldowns)
-    delta = runner.run_once(
+    result = runner.run_once(
         [_context("BTCUSDT")], config=EffectiveConfig(), frozen=FrozenParams(),
         config_hash="h", evaluated_at=NOW,
     )
-    row = delta.upserts[0]
+    row = result.delta.upserts[0]
     assert row.accepted is False
     assert row.score == 0.0
 
 
 def test_run_once_picks_best_side_between_long_and_short():
     runner = StrategyRunner()
-    delta = runner.run_once(
+    result = runner.run_once(
         [_context("BTCUSDT")], config=EffectiveConfig(), frozen=FrozenParams(),
         config_hash="h", evaluated_at=NOW, sides=(Side.LONG, Side.SHORT),
     )
-    row = delta.upserts[0]
+    row = result.delta.upserts[0]
     # baseline snapshot is LONG-favorable; SHORT should fail regime/momentum and
     # score lower (0), so LONG must win
     assert row.side == Side.LONG
@@ -131,10 +131,10 @@ def test_rejected_symbol_carries_reason():
     from dataclasses import replace
 
     ctx = replace(ctx, flags=MarketQualityFlags(kill_switch_engaged=True))
-    delta = runner.run_once(
+    result = runner.run_once(
         [ctx], config=EffectiveConfig(), frozen=FrozenParams(), config_hash="h", evaluated_at=NOW,
     )
-    row = delta.upserts[0]
+    row = result.delta.upserts[0]
     assert row.accepted is False
     assert row.rejection_reason == RejectionReason.KILL_SWITCH
 
@@ -148,7 +148,11 @@ def test_run_once_publishes_developing_setup_for_near_trigger_rejection():
     # the default 70±20 threshold band, so use a threshold matched to the fixture's
     # actual score (13.75) rather than tuning the fixture to hit a default threshold
     # that assumes fully warmed indicator state.
-    runner = StrategyRunner(near_trigger=NearTriggerConfig(score_threshold=15.0, score_delta=10.0))
+    runner = StrategyRunner(
+        near_trigger=NearTriggerConfig(
+            score_threshold=15.0, score_delta=10.0, min_score=0.0
+        )
+    )
     ctx = _context("SOLUSDT")
     # only the spread condition fails -> one missing condition
     ctx = replace(ctx, snapshot=replace(ctx.snapshot, spread_bps=5.0))
@@ -169,4 +173,5 @@ def test_run_once_no_developing_setup_when_symbol_accepted():
         config_hash="h", evaluated_at=NOW,
     )
     snapshot = runner.developing.snapshot()
-    assert snapshot.setups == []
+    # LONG accepts in this fixture — never listed as developing for that side.
+    assert not any(s.side is Side.LONG for s in snapshot.setups)

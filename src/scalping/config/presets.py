@@ -58,13 +58,16 @@ class ClassPreset(BaseModel):
     overlay: bool = False
     disabled: bool = False
     disabled_reason: str | None = None
+    observe_only: bool = False
+    symbols_match: list[str] = []
+    universe_rule: dict[str, Any] = {}
     values: dict[str, Any] = {}
 
 
 def _split_known_and_meta(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Separate strategy-config keys from routing/metadata keys (symbols_match,
     universe_rule, description, etc.) that belong to universe/preset bookkeeping,
-    not to `EffectiveConfig`.
+    not to `EffectiveConfig` numeric sections.
     """
     meta_keys = {
         "version",
@@ -81,8 +84,6 @@ def _split_known_and_meta(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         "entries_disabled",
         "funding_rate_abs_max",
         "min_listing_age_days",
-        "max_positions_in_class",
-        "shorts_enabled",
     }
     known: dict[str, Any] = {}
     meta: dict[str, Any] = {}
@@ -104,6 +105,9 @@ def load_presets_yaml(path: Path) -> dict[str, ClassPreset]:
             overlay=meta.get("overlay", False),
             disabled=meta.get("disabled", False),
             disabled_reason=meta.get("disabled_reason"),
+            observe_only=bool(meta.get("observe_only", False)),
+            symbols_match=list(meta.get("symbols_match") or []),
+            universe_rule=dict(meta.get("universe_rule") or {}),
             values=known,
         )
     return result
@@ -113,6 +117,7 @@ _GATE_FIELDS = set(EffectiveConfig.model_fields["gates"].annotation.model_fields
 _RISK_FIELDS = set(EffectiveConfig.model_fields["risk"].annotation.model_fields)  # type: ignore[union-attr]
 _EXIT_FIELDS = set(EffectiveConfig.model_fields["exits"].annotation.model_fields)  # type: ignore[union-attr]
 _COST_FIELDS = set(EffectiveConfig.model_fields["cost"].annotation.model_fields)  # type: ignore[union-attr]
+_META_FIELDS = set(EffectiveConfig.model_fields["symbol_meta"].annotation.model_fields)  # type: ignore[union-attr]
 
 
 def _route(key: str) -> str:
@@ -124,6 +129,8 @@ def _route(key: str) -> str:
         return "exits"
     if key in _COST_FIELDS:
         return "cost"
+    if key in _META_FIELDS:
+        return "symbol_meta"
     raise KeyError(f"Unknown preset key {key!r} — not present on any EffectiveConfig section")
 
 
@@ -162,6 +169,12 @@ def resolve_effective_config(
     if class_preset is not None:
         reject_frozen_keys(class_preset.values.keys(), source=f"preset:{class_preset.name}")
         merged.update(class_preset.values)
+        if class_preset.disabled:
+            merged["disabled"] = True
+            if class_preset.disabled_reason:
+                merged["disabled_reason"] = class_preset.disabled_reason
+        if class_preset.observe_only:
+            merged["observe_only"] = True
 
     base_before_overlays = dict(merged)
     for overlay in overlays:
@@ -175,7 +188,9 @@ def resolve_effective_config(
         reject_frozen_keys(per_symbol_override.keys(), source="per_symbol_override")
         merged.update(per_symbol_override)
 
-    sectioned: dict[str, dict[str, Any]] = {"gates": {}, "risk": {}, "exits": {}, "cost": {}}
+    sectioned: dict[str, dict[str, Any]] = {
+        "gates": {}, "risk": {}, "exits": {}, "cost": {}, "symbol_meta": {},
+    }
     for key, value in merged.items():
         try:
             section = _route(key)
@@ -188,4 +203,5 @@ def resolve_effective_config(
     out.risk = out.risk.model_copy(update=sectioned["risk"])
     out.exits = out.exits.model_copy(update=sectioned["exits"])
     out.cost = out.cost.model_copy(update=sectioned["cost"])
+    out.symbol_meta = out.symbol_meta.model_copy(update=sectioned["symbol_meta"])
     return out

@@ -10,12 +10,14 @@ exactly one writer, matching the plan's stated design.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from scalping.config.frozen import FrozenParams
 from scalping.domain.models import BookTicker, Candle
 from scalping.indicators.incremental import ATR, EMA, RollingMedian
+from scalping.market_data.book_micro import BookMicroFeatures
 from scalping.market_data.staleness import Feed, StalenessWatchdog
 
 
@@ -32,6 +34,9 @@ class SymbolState:
     last_kline_1m_close_time: datetime | None = None
     last_kline_5m_close_time: datetime | None = None
     last_candle_1m: Candle | None = None
+    # Microstructure feature buffers (best-effort without full L2/CVD).
+    candles_1m: deque[Candle] = field(default_factory=lambda: deque(maxlen=120))
+    book_micro: BookMicroFeatures = field(default_factory=BookMicroFeatures)
 
 
 def _new_state(symbol: str, frozen: FrozenParams) -> SymbolState:
@@ -60,6 +65,7 @@ class SymbolStateRegistry:
     def on_book_ticker(self, bt: BookTicker) -> None:
         state = self._get_or_create(bt.symbol)
         state.last_book_ticker = bt
+        state.book_micro.on_book(bt)
         self.staleness.record(bt.symbol, Feed.BOOK_TICKER, bt.event_time)
 
     def on_kline_1m_closed(self, candle: Candle) -> float | None:
@@ -74,6 +80,7 @@ class SymbolStateRegistry:
         state.volume_median_30.update(candle.quote_volume)
         state.last_kline_1m_close_time = candle.close_time
         state.last_candle_1m = candle
+        state.candles_1m.append(candle)
         self.staleness.record(candle.symbol, Feed.KLINE_1M, candle.close_time)
         return median_before
 

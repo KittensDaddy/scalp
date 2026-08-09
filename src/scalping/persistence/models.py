@@ -171,3 +171,103 @@ class DevelopingSetupRow(Base):
     score: Mapped[float] = mapped_column(Float)
     missing_conditions: Mapped[list] = mapped_column(JSON)
     projections: Mapped[dict] = mapped_column(JSON)
+
+
+class TradeEventRow(Base):
+    """SCANNER_DASHBOARD_PLAN.md §H: trade_events (trade_id, ts, type, payload JSON)
+    — active-trade lifecycle timeline (S8)."""
+
+    __tablename__ = "trade_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trade_id: Mapped[str] = mapped_column(String, index=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    event_type: Mapped[str] = mapped_column(String, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
+class ScoreSnapshotRow(Base):
+    """SCANNER_DASHBOARD_PLAN.md §H: score_snapshots — signal/entry/exit/Δ≥5."""
+
+    __tablename__ = "score_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    side: Mapped[str] = mapped_column(String)
+    ts: Mapped[datetime] = mapped_column(DateTime, index=True)
+    score: Mapped[float] = mapped_column(Float)
+    breakdown: Mapped[dict] = mapped_column(JSON)
+    phase: Mapped[str] = mapped_column(String, index=True)  # signal|entry|exit|delta
+
+
+class CalibrationStatsRow(Base):
+    """SCANNER_DASHBOARD_PLAN.md §H / S10: calibration_stats."""
+
+    __tablename__ = "calibration_stats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_version: Mapped[str] = mapped_column(String, index=True)
+    side: Mapped[str] = mapped_column(String)
+    regime: Mapped[str] = mapped_column(String)
+    score_bucket: Mapped[str] = mapped_column(String)
+    n: Mapped[int] = mapped_column(Integer)
+    wins: Mapped[int] = mapped_column(Integer)
+    sum_r: Mapped[float] = mapped_column(Float)
+    ci_low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ci_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class PresetRow(Base):
+    """DASHBOARD_STRATEGY_LAB.md §1 — append-only preset versions."""
+
+    __tablename__ = "presets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    preset_id: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String, index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    class_rule: Mapped[dict] = mapped_column(JSON)
+    params: Mapped[dict] = mapped_column(JSON)
+    overlay: Mapped[bool] = mapped_column(Boolean, default=False)
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    author: Mapped[str] = mapped_column(String)
+    note: Mapped[str] = mapped_column(String, default="")
+    activated_paper: Mapped[bool] = mapped_column(Boolean, default=False)
+    activated_live: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class BacktestJobRow(Base):
+    """DASHBOARD_STRATEGY_LAB.md §2 — in-dashboard backtest jobs."""
+
+    __tablename__ = "backtest_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    preset_id: Mapped[str] = mapped_column(String, index=True)
+    preset_version: Mapped[int] = mapped_column(Integer)
+    symbols: Mapped[list] = mapped_column(JSON)
+    date_from: Mapped[datetime] = mapped_column(DateTime)
+    date_to: Mapped[datetime] = mapped_column(DateTime)
+    mode: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, index=True)
+    progress: Mapped[float] = mapped_column(Float, default=0.0)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    config_hash: Mapped[str] = mapped_column(String)
+    data_checksum: Mapped[str | None] = mapped_column(String, nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class IncidentRow(Base):
+    """SCANNER_DASHBOARD_PLAN.md §H: incidents."""
+
+    __tablename__ = "incidents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, index=True)
+    severity: Mapped[str] = mapped_column(String, index=True)
+    source: Mapped[str] = mapped_column(String)
+    payload: Mapped[dict] = mapped_column(JSON)

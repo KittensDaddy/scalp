@@ -15,9 +15,21 @@ def test_serialize_row_without_state_has_nulls():
     row = ScannerRow("BTCUSDT", Side.LONG, 80.0, True, None, None)
     out = serialize_scanner_row(row, None, now=NOW)
     assert out["symbol"] == "BTCUSDT"
+    assert out["strategy"] == "caems_v2"
+    assert out["preset"] is None
     assert out["price"] is None
     assert out["state"] == "ACCEPTED"
     assert out["reasons_top3"] == []
+
+
+def test_serialize_row_includes_strategy_and_preset():
+    row = ScannerRow(
+        "SOLUSDT", Side.LONG, 70.0, True, None, None,
+        strategy="ALT_RESIDUAL", preset="major_alt",
+    )
+    out = serialize_scanner_row(row, None, now=NOW)
+    assert out["strategy"] == "ALT_RESIDUAL"
+    assert out["preset"] == "major_alt"
 
 
 def test_serialize_row_with_book_ticker_fills_price_and_spread():

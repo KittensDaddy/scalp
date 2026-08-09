@@ -209,10 +209,9 @@ def test_reject_expected_edge_too_low():
     assert ev.rejection_reason == RejectionReason.EXPECTED_EDGE_TOO_LOW
 
 
-def test_all_20_rejection_reasons_are_reachable():
-    """Cross-check against the full enum — if a new reason is ever added to
-    RejectionReason without a corresponding fixture here, this test documents the gap
-    (it will still pass; the real guarantee is the 20 tests above)."""
+def test_all_20_caems_engine_rejection_reasons_are_reachable():
+    """Engine fixtures cover the original 20 CAEMS reasons. OBSERVE_ONLY /
+    DATA_UNAVAILABLE are plugin/microstructure-layer reasons outside evaluate()."""
     exercised = {
         RejectionReason.KILL_SWITCH, RejectionReason.SYMBOL_DISABLED,
         RejectionReason.SHORTS_DISABLED, RejectionReason.STALE_MARKET_DATA,
@@ -225,7 +224,11 @@ def test_all_20_rejection_reasons_are_reachable():
         RejectionReason.RISK_LIMIT, RejectionReason.DRAW_DOWN_LIMIT,
         RejectionReason.COST_TOO_HIGH, RejectionReason.EXPECTED_EDGE_TOO_LOW,
     }
-    assert exercised == set(RejectionReason)
+    assert exercised == set(RejectionReason) - {
+        RejectionReason.OBSERVE_ONLY,
+        RejectionReason.DATA_UNAVAILABLE,
+    }
+    assert len(exercised) == 20
 
 
 def test_strength_logged_on_rejection_too():

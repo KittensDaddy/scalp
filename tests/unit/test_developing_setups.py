@@ -34,7 +34,9 @@ def test_accepted_row_is_never_developing():
 
 
 def test_rejected_row_far_below_threshold_is_not_developing():
-    cfg = NearTriggerConfig(score_threshold=70.0, score_delta=20.0)
+    cfg = NearTriggerConfig(
+        score_threshold=70.0, score_delta=20.0, min_passed_conditions=10
+    )
     setup = detect_developing_setup(
         symbol="BTCUSDT", side=Side.LONG, score=10.0, accepted=False,
         conditions=_checks("volume"), config=cfg, evaluated_at=NOW,
@@ -74,6 +76,47 @@ def test_zero_missing_conditions_is_not_developing():
         conditions=_checks(), config=cfg, evaluated_at=NOW,
     )
     assert setup is None
+
+
+def test_rejected_row_with_mostly_passing_gates_is_developing_even_if_score_low():
+    cfg = NearTriggerConfig(
+        score_threshold=70.0, score_delta=20.0,
+        max_missing_conditions=5, min_passed_conditions=5, min_score=0.0,
+    )
+    setup = detect_developing_setup(
+        symbol="BTCUSDT", side=Side.LONG, score=10.0, accepted=False,
+        conditions=_checks("volume", "spread"), config=cfg, evaluated_at=NOW,
+    )
+    assert setup is not None
+    assert setup.missing_conditions == ["volume", "spread"]
+
+
+def test_min_score_40_filters_low_scores():
+    cfg = NearTriggerConfig(min_score=40.0, min_passed_conditions=5, max_missing_conditions=5)
+    setup = detect_developing_setup(
+        symbol="BTCUSDT", side=Side.LONG, score=39.9, accepted=False,
+        conditions=_checks("volume"), config=cfg, evaluated_at=NOW,
+    )
+    assert setup is None
+    setup2 = detect_developing_setup(
+        symbol="BTCUSDT", side=Side.LONG, score=40.0, accepted=False,
+        conditions=_checks("volume"), config=cfg, evaluated_at=NOW,
+    )
+    assert setup2 is not None
+
+def test_batch_keeps_one_setup_per_symbol():
+    cfg = NearTriggerConfig(score_threshold=70.0, score_delta=30.0, max_missing_conditions=3)
+    setups = detect_developing_setups(
+        [
+            ("ETHUSDT", Side.LONG, 60.0, False, _checks("volume")),
+            ("ETHUSDT", Side.SHORT, 80.0, False, _checks("spread")),
+        ],
+        cfg,
+        NOW,
+    )
+    assert len(setups) == 1
+    assert setups[0].side is Side.SHORT
+    assert setups[0].score == 80.0
 
 
 def test_batch_detection_ranks_by_score_descending():
